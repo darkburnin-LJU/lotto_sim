@@ -310,11 +310,19 @@
   }
 </style>
 
-<!-- ===== 라이브러리 (정확한 버전으로 고정, 2026-11-23 npm에서 확인) ===== -->
+<!-- ===== 라이브러리 (정확한 버전으로 고정, 2026-11-23 npm에서 확인) =====
+     2026-11-24 다듬기(최적화): 같은 버전(three 0.187.0, cannon-es 0.20.0)의 압축판(.min.js)으로 바꿈 — 내려받는 크기만 줄고 동작은 같음.
+     크기(압축 전 바이트): 원본 three.module.js 658,900 + three.core.js 1,474,799 + cannon-es.js 346,256 = 약 2.48MB
+                        → 압축판 three.module.min.js 392,177 + three.core.min.js 422,062 + cannon-es.min.js 139,855 = 약 0.95MB (약 62% 감소)
+     - three.module.min.js 안에서 "./three.core.js"(압축 안 된 판)를 불러오므로, 아래 두 번째 줄(전체 주소 키)로
+       그 주소를 압축판 three.core.min.js로 바꿔 끼운다 → three 핵심 파일이 두 번(원본 + 압축판) 불리지 않음.
+     - cannon-es는 공식 압축판이 없어 jsDelivr가 0.20.0 원본을 자동 압축한 파일(버전 고정 그대로).
+     (importmap 안에는 주석을 쓸 수 없어 여기에 적음) -->
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js",
-  "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.min.js",
+  "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.core.js": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.core.min.js",
+  "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.min.js"
 }}
 </script>
 </head>
@@ -351,6 +359,8 @@
 //                           3단계: 시작 버튼 한 번 → 맨 위 입구로 공 7개(6개 + 보너스) 자동 뽑기
 //                           4단계: 화면 아래 번호 표시(6개 + 보너스) + 다시 하기 버튼
 //                           5단계: 폰 화면 배치·성능 측정(?fps=1, lottoSim.perfReport())·자동 화질 낮추기
+//                           다듬기: 검사 도구(고정 난수 ?seed=, lottoSim.simulate/quickCheck/propertyTest 등)
+//                           다듬기: 최적화(라이브러리 압축판, 멈춰 있을 때 화면 그리기 쉬기)
 // =====================================================================
 
 // 라이브러리는 init 안에서 동적으로 불러온다 (실패하면 안내 문구를 보여주기 위해)
@@ -430,8 +440,9 @@ const CONFIG = {
   wind: {
     zoneHeight: 3,        // 통 바닥에서 이 높이(약 13cm)까지가 바람 구역 — 실제 확인 못 함
     gustRate: 8,          // 바람 구역 안 공 하나가 1초에 받는 돌풍 평균 횟수
-    gustUp: 55,           // 돌풍 한 번에 위로 더해지는 속도 최대값(단위/s, 약 2.4m/s). 실제로는 0.5~1.0배 무작위
-    gustSide: 8,          // 옆으로 흔드는 속도 최대값(±)
+    // 2026-11-24 사용자 결정: 바람 1.6배 (55 → 88, 8 → 12.8). 1.0/1.3/1.6/2.0배 비교 후 선택 — 화면 조정값, 실제 공기 세기 확인 못 함
+    gustUp: 88,           // 돌풍 한 번에 위로 더해지는 속도 최대값(단위/s, 약 3.9m/s). 실제로는 0.5~1.0배 무작위
+    gustSide: 12.8,       // 옆으로 흔드는 속도 최대값(±)
     rampTime: 1,          // 시작 후 이 시간(초) 동안 서서히 세짐
     strength: 1           // 전체 배율. 3단계: 입구가 열린 뒤 오래 안 잡히면 올라가고(CONFIG.draw), 공이 잡히면 1로 돌아옴
   },
@@ -451,7 +462,9 @@ const CONFIG = {
     boostMax: 2.5,             // 화면 조정값: 바람 배율 상한
     stuckTime: 30,             // 끼임 기준 (CLAUDE.md 전환 기준: 입구 열린 뒤 30초 안에 안 나오면 끼임). 끼이면 그 뽑기는 난수 방식으로 대신 뽑음
     suction: {                 // 빨아들이는 힘 — 화면 조정값, 실제 확인 못 함 (공기로 빨아들이는지 자체를 확인 못 함)
-      radius: 3,               // 입구(구 꼭대기 안쪽 면)에서 이 거리(약 13cm) 안의 공만 끌어당김
+      // 2026-11-24 사용자 결정: 3 → 1.5 (공 지름 1.5배). 3일 때 멀리 있던 공이 0.1~0.2초 만에 날아와 순간이동처럼 보였음.
+      // 사용자가 화면에 표시한 범위(구 꼭대기에서 공 약 1.5개 깊이)에 맞춤
+      radius: 1.5,             // 입구(구 꼭대기 안쪽 면)에서 이 거리(약 6.7cm) 안의 공만 끌어당김
       accel: 400               // 끌어당기는 가속도(단위/s²). 중력 약 220보다 커야 위로 끌려감
     },
     captureHeight: 0.5,        // 공 중심이 입구 높이 + 이 값을 처음 넘으면 잡힘 (공이 통 안쪽 면을 완전히 벗어난 위치)
@@ -511,6 +524,52 @@ const TRAY = {
 const TRAY_HALF_W = (TRAY.count * TRAY.spacing) / 2 + 0.15;
 let chamberBallPos = null;         // 맨 위 칸 안 공 자리 (THREE 불러온 뒤 만듦)
 
+// ===== 다듬기: 고정 난수 (2026-11-24, 검사용) =====
+// 모든 무작위는 rand() 하나를 거친다. 시드가 없으면 Math.random 그대로 (평소와 완전히 같음).
+// 주소에 ?seed=정수 가 있거나 lottoSim.setSeed(n)을 부르면 그 시드로 시작하는 고정 난수(mulberry32).
+// 주의: "같은 시드 → 같은 결과"는 그리지 않는 빠른 모드(자동 점검·lottoSim.simulate 등)에서만 보장한다.
+//       화면 모드(그리면서 돌 때)는 프레임 시간에 따라 한 프레임에 도는 물리 계산 수, 몸체 넣고 빼는 시점,
+//       엔진 시간(world.time)이 달라져 같은 시드라도 결과가 달라질 수 있다.
+let seedValue = null;      // 지금 쓰는 시드 (없으면 null = Math.random)
+let seededNext = null;     // 고정 난수 함수 (없으면 null)
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function rand() {
+  return seededNext ? seededNext() : Math.random();
+}
+// n이 null/undefined면 Math.random으로 돌아감. 같은 n으로 다시 부르면 처음부터 같은 순서로 다시 시작
+function setSeed(n) {
+  if (n === null || n === undefined || n === '') {
+    seedValue = null;
+    seededNext = null;
+    return null;
+  }
+  const v = Math.trunc(Number(n));
+  if (!Number.isFinite(v)) {
+    console.warn(`시드는 정수여야 합니다: ${n}`);
+    return seedValue;
+  }
+  seedValue = v;
+  seededNext = mulberry32(v >>> 0);
+  return v;
+}
+function getSeed() {
+  return seedValue;
+}
+function readUrlSeed() {
+  try {
+    const s = new URLSearchParams(window.location.search).get('seed');
+    if (s !== null && /^-?\d+$/.test(s.trim())) return parseInt(s.trim(), 10);
+  } catch (e) { /* 주소를 못 읽으면 시드 없음 */ }
+  return null;
+}
+
 // ===== 상태 =====
 const balls = [];          // { number, body, mesh, drawn, inWorld, anim, viewPos }
 let renderer, scene, camera, world;
@@ -526,6 +585,12 @@ let firstFrameDone = false;
 let nextCheckTime = 1;     // 다음 통 밖 점검 시각
 let tenSecLogged = false;
 let safetyNetHits = 0;     // 안전망이 공을 되돌린 횟수 (점검용)
+// ===== 다듬기(최적화, 2026-11-24): 멈춰 있을 때 화면 그리기 쉬기 — 화면 조정값 아님, 성능용(배터리 절약) =====
+// 공이 모두 잠들고 바람·추첨 흐름·이동 애니메이션이 없으면 화면이 한 장도 바뀌지 않으므로 renderer.render만 건너뜀.
+// 물리 계산·흐름·시간 기준은 그대로 매 프레임 진행 (결과·화면 모습에 영향 없음). 자세한 조건은 canRestRender() 참고
+let renderDirty = true;    // 화면 크기·화질·카메라가 바뀌었거나 탭으로 돌아옴 → 다음 프레임은 반드시 그림
+let renderRested = false;  // 쉬는 조건에서 마지막 1프레임을 이미 그렸는지 (true면 다음부터 그리기 쉼)
+let renderSkipping = false; // 바로 전 프레임에서 그리기를 쉬었는지 (?fps=1 표시용)
 
 // ===== 바람 상태 (2단계) =====
 let windOn = false;
@@ -572,6 +637,9 @@ const flow = {
 };
 // 자동 점검 상태
 const autoTest = { running: false, rec: null };
+// 다듬기: 검사 함수(lottoSim.simulate 등) 실행 상태. active 동안 화면 루프는 물리를 돌리지 않고 버튼 클릭도 무시.
+// instantSort: 번호 정렬을 기다리지 않고 바로 적용 (빠른 모드 검사용). 평소에는 둘 다 false
+const harness = { active: false, instantSort: false };
 
 // ===== 화면 안내 =====
 const loadingEl = document.getElementById('loading');
@@ -683,6 +751,7 @@ function cancelSortTimers() {
   for (const el of resultSlotEls) el.classList.remove('sortHide');
 }
 function prefersReducedMotion() {
+  if (harness.instantSort) return true;          // 검사용 빠른 모드에서만 (평소에는 false)
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 function scheduleSortResultBar(numbers) {
@@ -900,6 +969,7 @@ function updateCamera() {
   // 위쪽 usableH 영역을 기준으로 맞춘 화면을 전체 높이 H로 그림 → 통이 버튼·하단 문구와 겹치지 않음
   camera.setViewOffset(W, usableH, 0, 0, W, H);
   camera.updateProjectionMatrix();
+  renderDirty = true;              // 다듬기(최적화): 카메라가 바뀌었으니 다음 프레임은 반드시 그림
 }
 
 let lastSizeKey = '';
@@ -912,7 +982,9 @@ function onResize() {
     renderer.setPixelRatio(pr);
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
-  updateCamera();
+  updateCamera();                  // 안에서 renderDirty = true (다음 프레임은 반드시 그림)
+  // 다듬기(최적화): 그리기를 쉬는 중이면 크기 변경으로 지워진 화면을 바로 다시 그림 (다음 프레임 전 한 장이 비어 보이지 않게)
+  if (renderRested && scene && camera) renderer.render(scene, camera);
   updatePerfBox();
 }
 // 5단계: 화면을 돌리거나 주소창이 나타났다 사라져 높이가 바뀔 때 다시 맞춤.
@@ -941,9 +1013,10 @@ function getTargetPixelRatio() {
 // 1초 단위 묶음(bucket)을 최근 10개만 고정 크기 고리 버퍼에 보관 (매 프레임 배열에 쌓지 않음)
 // realMs: 실제 흐른 시간(제한 전 프레임 간격의 합), steps: 물리 계산 횟수, physMs: world.step에 걸린 시간
 // (바람·빨아들이기·안전망 등 물리 계산마다 도는 코드 포함), over33: 프레임 간격이 33ms(30fps)를 넘은 프레임 수
+// skipped: 다듬기(최적화) — 그리기를 쉰 프레임 수
 const PERF_HISTORY = 10;
 function makePerfBucket() {
-  return { frames: 0, realMs: 0, steps: 0, physMs: 0, over33: 0, windAll: true };
+  return { frames: 0, realMs: 0, steps: 0, physMs: 0, over33: 0, windAll: true, skipped: 0 };
 }
 const PERF = {
   enabled: false,                  // ?fps=1 이면 왼쪽 위에 표시
@@ -959,16 +1032,18 @@ const PERF = {
 const FRAME_OVER_MS = 1000 / 30;   // 30fps 한 프레임 시간
 function copyPerfBucket(dst, src) {
   dst.frames = src.frames; dst.realMs = src.realMs; dst.steps = src.steps;
-  dst.physMs = src.physMs; dst.over33 = src.over33; dst.windAll = src.windAll;
+  dst.physMs = src.physMs; dst.over33 = src.over33; dst.windAll = src.windAll; dst.skipped = src.skipped;
 }
 function resetPerfBucket(b) {
-  b.frames = 0; b.realMs = 0; b.steps = 0; b.physMs = 0; b.over33 = 0; b.windAll = true;
+  b.frames = 0; b.realMs = 0; b.steps = 0; b.physMs = 0; b.over33 = 0; b.windAll = true; b.skipped = 0;
 }
-// 매 프레임 한 번 호출 (rawMs: 제한 전 프레임 간격, steps: 이번 프레임 물리 계산 횟수, physMs: world.step 시간)
-function perfRecordFrame(rawMs, steps, physMs) {
+// 매 프레임 한 번 호출 (rawMs: 제한 전 프레임 간격, steps: 이번 프레임 물리 계산 횟수, physMs: world.step 시간,
+// skipped: 다듬기(최적화) — 이번 프레임에 그리기를 쉬었는지)
+function perfRecordFrame(rawMs, steps, physMs, skipped) {
   if (!(rawMs > 0) || rawMs > 1000) return;      // 탭 전환 복귀 등 비정상적으로 긴 간격은 빼고 셈
   const c = PERF.cur;
   c.frames++;
+  if (skipped) c.skipped++;
   c.realMs += rawMs;
   c.steps += steps;
   c.physMs += physMs;
@@ -997,6 +1072,7 @@ function sumPerf(list) {
   const s = makePerfBucket();
   for (const b of list) {
     s.frames += b.frames; s.realMs += b.realMs; s.steps += b.steps; s.physMs += b.physMs; s.over33 += b.over33;
+    s.skipped += b.skipped || 0;
   }
   return s;
 }
@@ -1023,6 +1099,7 @@ function checkAutoQuality(closed) {
   PERF.lowered.push({ to: next, fps: Math.round(fps * 10) / 10, atPhysicsSec: Math.round(getPhysicsTime() * 10) / 10 });
   renderer.setPixelRatio(getTargetPixelRatio());
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderDirty = true;                            // 다듬기(최적화): 화질이 바뀌었으니 다음 프레임은 반드시 그림
   console.log(`화면이 느려 그리는 해상도를 ${next}로 낮춤 (평균 ${fps.toFixed(1)}fps)`);
 }
 // ?fps=1 일 때 왼쪽 위 표시 갱신 (1초마다)
@@ -1039,7 +1116,8 @@ function updatePerfBox(b) {
     `프레임당 물리 ${perFrame}회\n` +
     `물리 속도 ${speed}%\n` +
     `해상도 배율 ${renderer.getPixelRatio().toFixed(2)}\n` +
-    `화면 ${window.innerWidth}×${window.innerHeight}`;
+    `화면 ${window.innerWidth}×${window.innerHeight}\n` +
+    `그리기: ${renderSkipping ? '쉼' : '그림'}`;   // 다듬기(최적화): 멈춰 있을 때 그리기 쉬는 중인지
 }
 // 콘솔: lottoSim.perfReport() — 최근 10초 성능 요약 (?fps=1 없이도 동작)
 function perfReport() {
@@ -1061,6 +1139,7 @@ function perfReport() {
     physicsStepsPerFrame: Math.round(s.steps / s.frames * 100) / 100,
     physicsSpeedPct: Math.round(s.steps * CONFIG.fixedStep * 1000 / s.realMs * 100),  // 100%면 실시간. 낮으면 물리가 느려짐
     framesOver33msPct: r1(s.over33 / s.frames * 100),         // 30fps보다 느린 프레임 비율
+    renderSkippedPct: r1(s.skipped / s.frames * 100),         // 다듬기(최적화): 그리기를 쉰 프레임 비율 (멈춰 있을 때만 쉼)
     pixelRatio: renderer.getPixelRatio(),
     devicePixelRatio: window.devicePixelRatio || 1,
     screen: `${window.innerWidth}×${window.innerHeight}`,
@@ -1070,6 +1149,7 @@ function perfReport() {
     '===== 성능 요약 (최근 ' + report.seconds + '초) =====\n' +
     `  평균 fps: ${report.avgFps} / 최저 fps(1초 단위): ${report.minFps}\n` +
     `  30fps보다 느린 프레임(33ms 초과): ${report.framesOver33msPct}%\n` +
+    `  그리기 쉰 프레임 비율: ${report.renderSkippedPct}% (공이 모두 멈추고 추첨·바람이 없을 때만 쉼, 배터리 절약용)\n` +
     `  물리 계산 1회 평균: ${report.physicsStepMs}ms, 프레임당 물리 계산: ${report.physicsStepsPerFrame}회\n` +
     `  물리 속도: ${report.physicsSpeedPct}% (100%면 실제 시간과 같은 빠르기, 낮으면 공이 느리게 움직임)\n` +
     `  그리는 해상도 배율: ${report.pixelRatio} (기기 배율 ${report.devicePixelRatio}), 화면 ${report.screen}\n` +
@@ -1238,20 +1318,26 @@ function createPhysicsWorld() {
   // 1) 공 속도 상한 2) 안전망 3) 섞임 점검 기록 4) 입구 닫는 중이면 근처 공 돌려보내기 5) 뽑기 흐름
   // 주의: 이 안에서는 물리 세계에 body를 넣거나 빼지 않는다 (엔진이 계산 중이라 오류 위험).
   //       넣고 빼기는 flushBodyChanges()가 world.step 뒤에 처리한다.
-  world.addEventListener('postStep', () => {
-    physicsSteps++;                              // 물리 누적 시간 추적용
-    const maxV = CONFIG.maxBallSpeed;
-    for (const b of balls) {
-      if (b.drawn) continue;
-      const v = b.body.velocity;
-      const len = v.length();
-      if (len > maxV) v.scale(maxV / len, v);
-    }
-    applySafetyNet();
-    recordMixStats();
-    if (gate.state === 'closing') pushGateRegionDown();
-    drawFlowStep();
-  });
+  // (다듬기: 이름 붙은 함수 onPostStep으로 분리 — lottoSim.profilePhysics가 잠시 바꿔 끼워 시간을 잼. 하는 일은 그대로)
+  world.addEventListener('postStep', onPostStep);
+}
+function onPostStep() {
+  physicsSteps++;                                // 물리 누적 시간 추적용
+  capBallSpeeds();
+  applySafetyNet();
+  recordMixStats();
+  if (gate.state === 'closing') pushGateRegionDown();
+  drawFlowStep();
+}
+// 공 속도 상한
+function capBallSpeeds() {
+  const maxV = CONFIG.maxBallSpeed;
+  for (const b of balls) {
+    if (b.drawn) continue;
+    const v = b.body.velocity;
+    const len = v.length();
+    if (len > maxV) v.scale(maxV / len, v);
+  }
 }
 
 // world.step 뒤에 실행: 미뤄 둔 body 넣고 빼기 처리
@@ -1290,7 +1376,7 @@ function stepOnce() {
 // ===== 바람 (돌풍 방식) =====
 // 실제 추첨기 공기 세기·방식은 확인 못 함 — 화면에서 잘 섞이도록 정한 값 (CONFIG.wind)
 // 바닥 구역(통 바닥에서 zoneHeight 이내)의 공마다, 계산 한 번마다 gustRate×fixedStep 확률로 위쪽 순간 충격을 준다.
-// 무작위는 Math.random (재미용; 결과 예측 목적 아님)
+// 무작위는 rand() (평소 Math.random 그대로, ?seed 때만 고정 난수. 재미용; 결과 예측 목적 아님)
 function applyWind() {
   if (!windOn) return;
   const W = CONFIG.wind;
@@ -1304,13 +1390,13 @@ function applyWind() {
     if (b.drawn) continue;
     const body = b.body;
     if (body.position.y - floorY >= W.zoneHeight) continue;
-    if (Math.random() >= chance) continue;
+    if (rand() >= chance) continue;
     if (body.sleepState === CANNON.Body.SLEEPING) body.wakeUp();
-    const up = W.gustUp * W.strength * ramp * (0.5 + 0.5 * Math.random());
+    const up = W.gustUp * W.strength * ramp * (0.5 + 0.5 * rand());
     windImpulse.set(
-      (Math.random() - 0.5) * 2 * side,
+      (rand() - 0.5) * 2 * side,
       up,
-      (Math.random() - 0.5) * 2 * side
+      (rand() - 0.5) * 2 * side
     );
     windImpulse.scale(body.mass, windImpulse);   // 질량을 곱해 '속도 변화'로 맞춤
     body.applyImpulse(windImpulse, windPoint);
@@ -1707,7 +1793,7 @@ function makeSpawnPoints(count) {
   const spacing = BALL_R * 2 * 1.25;          // 공 지름보다 넓은 간격 → 겹치지 않음
   const maxS = BALL_MAX_DIST - 0.3;           // 구 중심에서 이 거리 안쪽에만 배치
   const n = Math.floor(maxS / spacing);
-  const jitter = () => (Math.random() - 0.5) * 0.2; // 흔들림(±0.1)을 더해도 간격 1.25 > 지름 1 이라 안 겹침
+  const jitter = () => (rand() - 0.5) * 0.2; // 흔들림(±0.1)을 더해도 간격 1.25 > 지름 1 이라 안 겹침
   const pts = [];
   // 구 아래쪽부터 한 층씩 위로 채움 (층마다 구 단면 원 안에 있는 격자점만)
   for (let iy = -n; iy <= n && pts.length < count; iy++) {
@@ -1730,10 +1816,26 @@ function makeSpawnPoints(count) {
   }
   // 번호가 한쪽에 몰리지 않게 위치 섞기
   for (let i = pts.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rand() * (i + 1));
     [pts[i], pts[j]] = [pts[j], pts[i]];
   }
   return pts;
+}
+
+// 공 물리 몸체 1개 (다듬기: 검사용 새 물리 세계에서도 같은 값으로 만들려고 함수로 뺌. 값은 그대로)
+function makeBallBody(shape, p) {
+  return new CANNON.Body({
+    mass: CONFIG.ballMass,
+    material: ballMaterial,
+    shape: shape,
+    // 처음 위치를 여기서 주면 보간용 이전 위치도 같은 곳으로 잡혀서 첫 화면에서 튀지 않음
+    position: new CANNON.Vec3(p.x, p.y, p.z),
+    linearDamping: CONFIG.ballLinearDamping,
+    angularDamping: CONFIG.ballAngularDamping,
+    allowSleep: true,
+    sleepSpeedLimit: CONFIG.sleepSpeedLimit,
+    sleepTimeLimit: CONFIG.sleepTimeLimit
+  });
 }
 
 // ===== 공 45개 만들기 =====
@@ -1752,23 +1854,12 @@ function createBalls() {
     scene.add(mesh);
 
     const p = spawn[i];
-    const body = new CANNON.Body({
-      mass: CONFIG.ballMass,
-      material: ballMaterial,
-      shape: shape,
-      // 처음 위치를 여기서 주면 보간용 이전 위치도 같은 곳으로 잡혀서 첫 화면에서 튀지 않음
-      position: new CANNON.Vec3(p.x, p.y, p.z),
-      linearDamping: CONFIG.ballLinearDamping,
-      angularDamping: CONFIG.ballAngularDamping,
-      allowSleep: true,
-      sleepSpeedLimit: CONFIG.sleepSpeedLimit,
-      sleepTimeLimit: CONFIG.sleepTimeLimit
-    });
+    const body = makeBallBody(shape, p);
     // 번호가 여러 방향을 보도록 처음 방향을 무작위로
     body.quaternion.setFromEuler(
-      Math.random() * Math.PI * 2,
-      Math.random() * Math.PI * 2,
-      Math.random() * Math.PI * 2
+      rand() * Math.PI * 2,
+      rand() * Math.PI * 2,
+      rand() * Math.PI * 2
     );
     body.previousQuaternion.copy(body.quaternion);
     body.interpolatedQuaternion.copy(body.quaternion);
@@ -1926,10 +2017,10 @@ const RandomSelector = {
   name: 'random',
   ball: null,
   doneStep: 0,
-  // 남은 공 중 하나를 난수(Math.random)로 정하고 물리에서 뺀 뒤 곡선 경로(현재 위치 → 구멍 → 칸)로 보냄
+  // 남은 공 중 하나를 난수(rand, 평소 Math.random)로 정하고 물리에서 뺀 뒤 곡선 경로(현재 위치 → 구멍 → 칸)로 보냄
   start(ctx) {
     const left = balls.filter(b => !b.drawn);
-    const b = left[Math.floor(Math.random() * left.length)];
+    const b = left[Math.floor(rand() * left.length)];
     markDrawn(b);
     const bp = b.body.position;
     const p0 = new THREE.Vector3(bp.x, bp.y, bp.z);
@@ -2161,7 +2252,7 @@ function resetSimulation() {
     body.angularVelocity.set(0, 0, 0);
     body.force.set(0, 0, 0);
     body.torque.set(0, 0, 0);
-    body.quaternion.setFromEuler(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
+    body.quaternion.setFromEuler(rand() * Math.PI * 2, rand() * Math.PI * 2, rand() * Math.PI * 2);
     body.previousQuaternion.copy(body.quaternion);
     body.interpolatedQuaternion.copy(body.quaternion);
     body.aabbNeedsUpdate = true;
@@ -2201,10 +2292,18 @@ async function runAutoTest(n = 1000, options = {}) {
     console.warn('추첨기 준비가 끝난 뒤 다시 실행해 주세요.');
     return null;
   }
+  if (harness.active) {
+    console.warn('다른 검사가 진행 중입니다. 끝난 뒤 다시 실행해 주세요.');
+    return null;
+  }
   n = Math.max(1, Math.floor(Number(n) || 1000));
   const mode = options.mode === 'random' || options.mode === 'physics' ? options.mode : CONFIG.selectionMode;
   const savedMode = CONFIG.selectionMode;
   CONFIG.selectionMode = mode;
+  // 다듬기: options.seed가 있으면 고정 난수 + 검사용 새 물리 세계에서 돌려 같은 결과가 나오게 (끝나면 원래 시드 설정·화면용 세계로)
+  const seeded = options.seed !== undefined && options.seed !== null;
+  const savedSeed = seedValue;
+  if (seeded) setSeed(options.seed);
   const D = CONFIG.draw;
   const dt = CONFIG.fixedStep;
   const rec = {
@@ -2231,6 +2330,7 @@ async function runAutoTest(n = 1000, options = {}) {
   let k = 0;
   let aborted = false;
   try {
+    if (seeded) useTestPhysics();
     while (rec.draws < n) {
       resetSimulation();
       for (let i = 0; i < settleSteps; i++) {
@@ -2280,6 +2380,7 @@ async function runAutoTest(n = 1000, options = {}) {
   const result = {
     note: '시뮬레이터 점검용이며 실제 로또와 관계없음',
     mode,
+    seed: seeded ? seedValue : null,
     requested: n,
     drawn: rec.draws,
     rounds: rec.rounds,
@@ -2343,16 +2444,676 @@ async function runAutoTest(n = 1000, options = {}) {
     autoTest.running = false;
     autoTest.rec = null;
     replay.pending = false;
+    if (seeded) {
+      setSeed(savedSeed);
+      restoreScreenPhysics();
+    }
     try {
       resetSimulation();
     } catch (e) {
       console.error('자동 점검 뒤 되돌리기 중 오류', e);
     }
     clearResultBar();                            // 점검이 끝나면 번호 표시도 빈 상태로
+    renderDirty = true; renderRested = false;    // 다듬기(최적화): 점검 뒤 첫 프레임은 반드시 다시 그림
     lastTime = performance.now();
     updateStartButton();
   }
   return finalResult;
+}
+
+// =====================================================================
+// ===== 다듬기: 검사 도구 (2026-11-24) — 검사용이며 평소 사용에는 쓰이지 않음 =====
+// 시뮬레이터 점검용이며 실제 로또와 관계없음.
+// 모든 검사 함수는 그리지 않는 빠른 모드(자동 점검과 같은 방식: world.step 한 번 → 몸체 넣고 빼기)로 돈다.
+// world.step 도중에는 몸체를 넣고 빼지 않는다 (기존 규칙 그대로, 넣고 빼기는 flushBodyChanges·resetSimulation·아래 useTestPhysics에서만).
+// 끝나면 finally에서 자동 점검과 같은 정리(resetSimulation + 번호 칸 비우기)로 화면을 처음 상태로 되돌린다.
+// =====================================================================
+const HARNESS_YIELD = 300;                 // 이만큼 물리 계산할 때마다 브라우저에 양보 (멈춤 방지)
+const CHECK_EVERY_STEPS = Math.round(0.25 / CONFIG.fixedStep);   // 규칙 검사 간격 (물리 0.25초)
+const harnessSaved = { seed: null, mode: 'physics', log: null };
+
+// 같은 시드 → 같은 결과를 위해: 검사 회차마다 물리 세계를 통째로 새로 만든다
+// (새 CANNON.World·재질·벽 판 162장·입구 판·칸 벽·공 몸체 45개를 init과 같은 순서로).
+// 이전 방식(기존 세계의 몸체 순서·엔진 시간만 맞추기)은 페이지를 연 뒤 화면 모드에서 쌓인 몸체·엔진 내부 상태가 남아
+// 페이지마다 결과가 달랐음(2026-11-24 차등 검사에서 발견). 화면용 세계는 그대로 보관했다가 끝나면 되돌린다.
+const screenPhys = { active: false, world: null, ballMaterial: null, wallMaterial: null, windImpulse: null, windPoint: null, suctionForce: null, gatePanel: null, gateInWorld: true, bodies: [], inWorld: [] };
+function useTestPhysics() {
+  if (!screenPhys.active) {                      // 처음 한 번만 화면용 세계를 보관
+    screenPhys.active = true;
+    screenPhys.world = world;
+    screenPhys.ballMaterial = ballMaterial;
+    screenPhys.wallMaterial = wallMaterial;
+    screenPhys.windImpulse = windImpulse;
+    screenPhys.windPoint = windPoint;
+    screenPhys.suctionForce = suctionForce;
+    screenPhys.gatePanel = gate.panel;
+    screenPhys.gateInWorld = gate.inWorld;
+    screenPhys.bodies = balls.map(b => b.body);
+    screenPhys.inWorld = balls.map(b => b.inWorld);
+  }
+  pendingBallRemovals.length = 0;
+  createPhysicsWorld();                          // 새 세계 + 재질 + preStep/postStep 연결 (world 등 전역이 새 것으로 바뀜)
+  createDrumCollider();                          // 벽 판 162장 (gate.panel·gate.inWorld·gate.state도 새로)
+  createChamberCollider();
+  const shape = new CANNON.Sphere(BALL_R);
+  for (const b of balls) {
+    b.body = makeBallBody(shape, { x: DRUM_CENTER.x, y: DRUM_CENTER.y, z: DRUM_CENTER.z });   // 위치는 바로 뒤 resetSimulation이 정함
+    world.addBody(b.body);
+    b.inWorld = true;
+  }
+  gate.pendingRemove = false;
+  suctionOn = false;
+  windOn = false;
+}
+function restoreScreenPhysics() {
+  if (!screenPhys.active) return;
+  world = screenPhys.world;
+  ballMaterial = screenPhys.ballMaterial;
+  wallMaterial = screenPhys.wallMaterial;
+  windImpulse = screenPhys.windImpulse;
+  windPoint = screenPhys.windPoint;
+  suctionForce = screenPhys.suctionForce;
+  gate.panel = screenPhys.gatePanel;
+  gate.inWorld = screenPhys.gateInWorld;
+  gate.pendingRemove = false;
+  balls.forEach((b, i) => {
+    b.body = screenPhys.bodies[i];
+    b.inWorld = screenPhys.inWorld[i];
+  });
+  pendingBallRemovals.length = 0;
+  screenPhys.active = false;
+  screenPhys.world = null;
+  screenPhys.bodies = [];
+  screenPhys.inWorld = [];
+}
+function harnessReady(name) {
+  if (!world || !firstFrameDone) {
+    console.warn(`${name}: 추첨기 준비가 끝난 뒤 다시 실행해 주세요.`);
+    return false;
+  }
+  if (harness.active || autoTest.running) {
+    console.warn(`${name}: 다른 검사나 자동 점검이 진행 중입니다.`);
+    return false;
+  }
+  return true;
+}
+function beginHarness() {
+  harnessSaved.seed = seedValue;
+  harnessSaved.mode = CONFIG.selectionMode;
+  harnessSaved.log = console.log;
+  harness.active = true;
+  harness.instantSort = true;
+  console.log = () => {};                        // 검사 중 흐름 로그(뽑기 n/7 등)는 숨김 — 결과는 끝에 짧게
+  cancelSortTimers();
+}
+function endHarness() {
+  renderDirty = true; renderRested = false;      // 다듬기(최적화): 검사 뒤 첫 프레임은 반드시 다시 그림
+  try {
+    CONFIG.selectionMode = harnessSaved.mode;
+    setSeed(harnessSaved.seed);
+    replay.pending = false;
+    replay.hadFocus = false;
+    restoreScreenPhysics();                      // 화면용 물리 세계로 되돌림
+    resetSimulation();
+  } catch (e) {
+    console.error('검사 뒤 되돌리기 중 오류', e);
+  }
+  clearResultBar();
+  console.log = harnessSaved.log;
+  harness.active = false;
+  harness.instantSort = false;
+  lastTime = performance.now();
+  updateStartButton();
+}
+// 한 회차를 처음부터: 새 물리 세계 → 시드 → 처음 배치 (rand는 시드를 정한 뒤 resetSimulation에서 처음 쓰임)
+function prepareRun(seed, mode) {
+  CONFIG.selectionMode = mode === 'random' ? 'random' : 'physics';
+  useTestPhysics();
+  setSeed(seed);
+  replay.pending = false;
+  resetSimulation();
+  clearResultBar();
+  return physicsSteps;
+}
+function harnessStep() {
+  stepOnce();
+  checkReplayReady();                            // 화면 루프 대신 여기서 "다시 하기 뒤 준비 완료" 확인
+}
+function roundCapSteps() {
+  const D = CONFIG.draw;
+  return Math.round((D.autoTestSettleTime + D.total * (D.mixTime + D.stuckTime + D.randomPathTime + D.showTime + 1) + 10) / CONFIG.fixedStep);
+}
+// maxSteps까지 물리 진행. until()이 참이 되면 멈추고 true. ctx.onTick(시작 뒤 계산 횟수)를 계산마다 부름
+async function advance(ctx, maxSteps, until) {
+  for (let i = 0; i < maxSteps; i++) {
+    if (until && until()) return true;
+    harnessStep();
+    if (ctx.onTick) ctx.onTick(physicsSteps - ctx.s0);
+    if (++ctx.k % HARNESS_YIELD === 0) await yieldToBrowser();
+  }
+  return until ? !!until() : true;
+}
+
+// ----- 지문(fingerprint): 공 45개 위치를 소수 4자리로 이어 붙인 문자열의 짧은 해시 -----
+function fnv1a(str, h) {
+  h = h === undefined ? 0x811c9dc5 : h;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+function hex8(h) {
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+function snapshotPositions() {                   // 공 번호 순서, 뽑힌 공은 null
+  return balls.map(b => {
+    if (b.drawn) return null;
+    const p = b.body.position;
+    return [p.x.toFixed(4), p.y.toFixed(4), p.z.toFixed(4)];
+  });
+}
+function snapshotString(pos) {
+  return pos.map(p => p ? p.join(',') : 'x').join(';');
+}
+
+// ----- 1. simulate: 빠른 모드로 처음 배치 → 3초 쌓기 → 실제 흐름(5초 섞기·잡기·2초)으로 draws개 -----
+async function simulateCore(opts, onCheck) {
+  const D = CONFIG.draw, dt = CONFIG.fixedStep;
+  const seed = opts.seed === undefined || opts.seed === null ? 1 : opts.seed;
+  const draws = Math.min(D.total, Math.max(1, Math.floor(Number(opts.draws) || D.total)));
+  const mode = opts.mode === 'random' || opts.mode === 'physics' ? opts.mode : harnessSaved.mode;
+  const s0 = prepareRun(seed, mode);
+  const cpEvery = Math.round(1 / dt);            // 지문 기록: 물리 1초마다
+  const checkpoints = [];
+  const stuckDraws = [];
+  let hash = 0x811c9dc5;
+  const record = () => {
+    const pos = snapshotPositions();
+    const str = snapshotString(pos);
+    hash = fnv1a(str + '|', hash);
+    checkpoints.push({ t: Math.round((physicsSteps - s0) * dt * 1000) / 1000, hash: hex8(fnv1a(str)), pos });
+  };
+  record();
+  const ctx = {
+    s0, k: 0,
+    onTick: (e) => {
+      if (e % cpEvery === 0) record();
+      if (flow.phase === 'waiting' && flow.stuck && !stuckDraws.includes(flow.index + 1)) stuckDraws.push(flow.index + 1);
+      if (onCheck && e % CHECK_EVERY_STEPS === 0) onCheck(e * dt);
+    }
+  };
+  await advance(ctx, Math.round(D.autoTestSettleTime / dt));
+  startDraw();
+  const ok = await advance(ctx, roundCapSteps(), () => flow.index >= draws || flow.phase === 'done');
+  const finalPos = snapshotPositions();
+  hash = fnv1a(snapshotString(finalPos) + '|end', hash);
+  const out = {
+    seed: seedValue,
+    mode,
+    draws,
+    numbers: flow.numbers.slice(0, draws),
+    physicsSeconds: Math.round((physicsSteps - s0) * dt * 1000) / 1000,
+    fingerprint: { hash: hex8(hash), last: finalPos.map(p => p ? p.map(Number) : null) },
+    timedOut: !ok,
+    stuckDraws
+  };
+  if (opts.keepCheckpoints) out.checkpoints = checkpoints;   // 차등 검사용 (1초마다 위치)
+  return out;
+}
+async function simulate(opts) {
+  if (!harnessReady('simulate')) return null;
+  beginHarness();
+  try {
+    return await simulateCore(opts || {}, null);
+  } finally {
+    endHarness();
+  }
+}
+
+// ----- 2. checkInvariants: 지금 상태에서 깨지면 안 되는 규칙 검사 -----
+function checkInvariants() {
+  const f = [];
+  const total = CONFIG.ballCount;
+  const nums = flow.numbers;
+  if (balls.length !== total) f.push(`공 수가 ${balls.length}개 (45개여야 함)`);
+  const onTray = Math.min(flow.index, nums.length);
+  const trayIdx = new Map();
+  for (let i = 0; i < onTray; i++) trayIdx.set(nums[i], i);
+  let inWorldN = 0, drawnN = 0, placed = 0;
+  for (const b of balls) {
+    if ((b.body.world === world) !== b.inWorld) f.push(`${b.number}번: 물리 세계 기록과 실제가 다름`);
+    const places = [];
+    if (!b.drawn) {
+      if (b.inWorld) { places.push('물리 세계'); inWorldN++; }
+    } else {
+      drawnN++;
+      if (b.inWorld && !pendingBallRemovals.includes(b)) f.push(`${b.number}번: 뽑혔는데 물리 세계에 남아 있음`);
+      if (trayIdx.has(b.number)) places.push('받침대');
+      if (b === flow.current) places.push(b.anim ? '이동 중' : '맨 위 칸');
+      else if (b === RandomSelector.ball) places.push('이동 중');
+    }
+    if (places.length === 1) placed++;
+    else f.push(`${b.number}번 공: ${places.length ? places.join('·') + ' 여러 곳에 있음' : '어디에도 없음'}`);
+  }
+  if (placed !== total) f.push(`공 보존: 정확히 한 곳에 있는 공 ${placed}/45`);
+  if (inWorldN + drawnN !== total) f.push(`물리 세계 안 ${inWorldN} + 뽑힌 ${drawnN} = ${inWorldN + drawnN} (45여야 함)`);
+  if ((gate.panel.world === world) !== gate.inWorld) f.push('입구 판: 물리 세계 기록과 실제가 다름');
+
+  const seen = new Set();
+  for (const n of nums) {
+    if (!Number.isInteger(n) || n < 1 || n > 45) f.push(`범위(1~45) 밖 번호: ${n}`);
+    if (seen.has(n)) f.push(`중복 번호: ${n}`);
+    seen.add(n);
+  }
+  if (nums.length > CONFIG.draw.total) f.push(`뽑힌 번호가 ${nums.length}개 (최대 7개)`);
+  const expectLen = flow.index + (flow.current ? 1 : 0);
+  if (nums.length !== expectLen) f.push(`뽑힌 번호 ${nums.length}개가 진행 순서(${flow.index}${flow.current ? ' + 맨 위 칸 1' : ''})와 안 맞음`);
+  const movingRandom = RandomSelector.ball && RandomSelector.ball !== flow.current ? 1 : 0;
+  if (drawnN !== nums.length + movingRandom) f.push(`뽑힌 공 ${drawnN}개가 뽑힌 번호 ${nums.length}개(+이동 중 ${movingRandom})와 안 맞음`);
+  for (let i = 0; i < onTray; i++) {
+    const b = balls[nums[i] - 1];
+    if (!b) continue;
+    if (!b.viewPos || b.anim || b.viewPos.distanceTo(traySlotPos(i)) > 1e-6) f.push(`받침대 ${i + 1}번째 자리에 ${nums[i]}번 공이 없음 (뽑힌 순서와 다름)`);
+  }
+
+  // 화면 아래 번호 칸 (자동 점검 중에는 번호 칸을 안 채우므로 건너뜀)
+  const sortPending = sortTimers.length > 0;
+  if (!autoTest.running) {
+    const texts = resultSlotEls.map(el => el.textContent);
+    let expected = new Array(resultSlotEls.length).fill('');
+    if (flow.phase === 'done' && !sortPending && nums.length === 7) {
+      expected = [...sortedMain(nums), nums[6]].map(String);     // 정렬 전환이 끝난 뒤: 앞 6칸 오름차순 + 보너스 = 7번째
+    } else {
+      for (let i = 0; i < Math.min(onTray, expected.length); i++) expected[i] = String(nums[i]);   // 추첨 중·정렬 전: 뽑힌 순서
+    }
+    if (texts.join(',') !== expected.join(',')) {
+      f.push(`화면 아래 번호 칸 [${texts.map(t => t || '_').join(' ')}] (기대 [${expected.map(t => t || '_').join(' ')}])`);
+    }
+  }
+
+  if (flow.phase === 'done') {
+    if (nums.length !== 7 || flow.index !== 7) f.push(`추첨 완료인데 번호 ${nums.length}개 (7개여야 함)`);
+    if (windOn) f.push('추첨 완료인데 바람이 켜져 있음');
+  }
+  if (flow.phase === 'idle' && !replay.pending && !autoTest.running) {
+    if (drawnN) f.push(`시작 전인데 뽑힌 공 ${drawnN}개`);
+    if (windOn) f.push('시작 전인데 바람이 켜져 있음');
+    if (CONFIG.wind.strength !== 1) f.push(`시작 전인데 바람 배율 ${CONFIG.wind.strength} (1이어야 함)`);
+    if (gate.state !== 'closed' || !gate.inWorld || gate.pendingRemove) f.push(`시작 전인데 입구가 닫혀 있지 않음 (${gate.state})`);
+    if (suctionOn) f.push('시작 전인데 빨아들이기가 켜져 있음');
+    if (pendingBallRemovals.length) f.push(`대기 중 몸체 목록 ${pendingBallRemovals.length}개 (비어 있어야 함)`);
+    if (nums.length) f.push(`시작 전인데 뽑힌 번호 ${nums.length}개`);
+    if (RandomSelector.ball) f.push('시작 전인데 난수 방식 이동 중인 공이 있음');
+    if (balls.some(b => b.viewPos || b.anim)) f.push('시작 전인데 맨 위 칸/받침대 자리가 남아 있음');
+  }
+  const out = countOutside();                    // 입구 길 예외 규칙은 countOutside 그대로
+  if (out) f.push(`통 밖 공 ${out}개`);
+  return { ok: f.length === 0, failures: f, phase: flow.phase, index: flow.index, physicsSec: Math.round(getPhysicsTime() * 100) / 100, sortPending };
+}
+
+// ----- 번호 칸 명암비·공 색 규칙 -----
+function contrastRatio(a, b) {
+  const la = hexLuminance(a), lb = hexLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+function checkSlotContrast() {
+  const f = [];
+  for (let n = 1; n <= 45; n++) {
+    const bg = getSlotColor(n);
+    const r = contrastRatio(bg, readableTextColor(bg));
+    if (r < 4.5) f.push(`${n}번 칸 명암비 ${r.toFixed(2)}:1 (4.5:1 미만)`);
+  }
+  return f;
+}
+function checkBallColorRule() {
+  // 번호대 규칙 (CLAUDE.md 공 색): 1~10, 11~20, 21~30, 31~40, 41~45가 각각 한 색이고 묶음끼리는 서로 다른 색인지만 확인
+  // (색 값 자체는 getBallColor에서만 정함 — 여기에 따로 적지 않음)
+  const bands = [[1, 10], [11, 20], [21, 30], [31, 40], [41, 45]];
+  const f = [];
+  const bandColors = [];
+  for (const [a, b] of bands) {
+    const c = getBallColor(a);
+    for (let n = a + 1; n <= b; n++) if (getBallColor(n) !== c) f.push(`${n}번 공 색 ${getBallColor(n)}이 같은 번호대(${a}~${b}) ${a}번 색 ${c}와 다름`);
+    bandColors.push([`${a}~${b}`, c]);
+  }
+  for (let i = 0; i < bandColors.length; i++) {
+    for (let j = i + 1; j < bandColors.length; j++) {
+      if (bandColors[i][1] === bandColors[j][1]) f.push(`번호대 ${bandColors[i][0]}와 ${bandColors[j][0]}의 색이 같음 (${bandColors[i][1]})`);
+    }
+  }
+  return f;
+}
+
+// ----- 3. quickCheck: 수 초 안에 끝나는 빠른 점검 -----
+async function quickCheck(opts) {
+  opts = opts || {};
+  const seed = opts.seed === undefined || opts.seed === null ? 1 : opts.seed;
+  const t0 = performance.now();
+  const failures = [];
+  const seenMsg = new Set();
+  const add = (where, msg) => {
+    if (seenMsg.has(msg)) return;                // 같은 내용은 처음 한 번만
+    seenMsg.add(msg);
+    if (failures.length < 30) failures.push(`${where} — ${msg}`);
+  };
+  if (!harnessReady('빠른 점검')) return { pass: false, failures: ['준비가 안 됐거나 다른 검사가 진행 중'], seconds: 0 };
+  let sim = null;
+  beginHarness();
+  try {
+    sim = await simulateCore({ seed, draws: CONFIG.draw.total }, (relSec) => {
+      const r = checkInvariants();
+      if (!r.ok) for (const m of r.failures) add(`시드 ${seed}, 물리 ${relSec.toFixed(2)}초, 단계 ${r.phase} ${Math.min(r.index + 1, 7)}/7`, m);
+    });
+    const r = checkInvariants();
+    if (!r.ok) for (const m of r.failures) add(`시드 ${seed}, 추첨 완료 직후`, m);
+    if (sim.timedOut) add(`시드 ${seed}`, '7개를 다 뽑기 전에 시간 초과');
+    if (sim.numbers.length !== 7) add(`시드 ${seed}`, `뽑힌 번호 ${sim.numbers.length}개 (7개여야 함)`);
+    if (sim.stuckDraws.length) add(`시드 ${seed}`, `끼임 발생 (${sim.stuckDraws.join(', ')}번째 뽑기)`);
+  } catch (e) {
+    add(`시드 ${seed}`, '오류: ' + (e && e.message ? e.message : e));
+  } finally {
+    endHarness();
+  }
+  const after = checkInvariants();
+  if (!after.ok) for (const m of after.failures) add('검사 뒤 되돌린 상태', m);
+  for (const m of checkSlotContrast()) add('번호 칸 명암비', m);
+  for (const m of checkBallColorRule()) add('공 색 규칙', m);
+  const v = validateBallNumbers(balls);
+  if (!v.ok) add('공 번호', v.message);
+  const seconds = Math.round((performance.now() - t0) / 100) / 10;
+  const pass = failures.length === 0;
+  if (pass) console.log(`빠른 점검: 통과 (${seconds}초)`);
+  else console.log(`빠른 점검: 실패 ${failures.length}건 (${seconds}초)\n - ` + failures.join('\n - '));
+  return { pass, failures, seconds, numbers: sim ? sim.numbers : null };
+}
+
+// ----- 4. propertyTest: 무작위 시점에 다시 하기 → 깨끗한 시작 전 → 다시 7개 → 완료 규칙 -----
+// atPhysicsSec = 시작 버튼을 누른 뒤 물리 시간(초). 같은 시드·같은 시점이면 빠른 모드에서 같은 결과가 재현된다.
+const PROP_TARGETS = ['mixing', 'waiting', 'showing', 'done', 'any'];
+async function propertyRun(runSeed, mode, plan) {
+  const D = CONFIG.draw, dt = CONFIG.fixedStep;
+  const s0 = prepareRun(runSeed, mode);
+  const T = plan.target || null;
+  let stage = '다시 하기 전';
+  let failure = null;
+  let resetStep = plan.resetStep === undefined || plan.resetStep === null ? null : plan.resetStep;
+  let trigPhase = null, trigIndex = 0;
+  const mk = (msg) => ({
+    seed: runSeed, mode,
+    atPhysicsSec: resetStep === null ? null : Math.round(resetStep * dt * 1000) / 1000,
+    phase: trigPhase || flow.phase,
+    drawIndex: Math.min((trigPhase ? trigIndex : flow.index) + 1, D.total),
+    stage, message: msg, resetStep
+  });
+  const ctx = {
+    s0, k: 0,
+    onTick: (e) => {
+      if (failure || e % CHECK_EVERY_STEPS !== 0) return;
+      const r = checkInvariants();
+      if (!r.ok) failure = mk(`${r.phase} 중 규칙 깨짐: ${r.failures.join(' / ')}`);
+    }
+  };
+  await advance(ctx, Math.round(D.autoTestSettleTime / dt), () => !!failure);
+  if (failure) return { failure };
+  startDraw();
+  const start = physicsSteps;
+  const cap = roundCapSteps();
+  if (resetStep === null && T && T.phase === 'any') resetStep = Math.floor(T.frac * 62 / dt);
+  const maxDelay = { mixing: D.mixTime, waiting: 0.5, showing: D.showTime, done: 2 };
+  let reached = -1;
+  const due = () => {
+    if (failure) return true;
+    const e = physicsSteps - start;
+    if (resetStep !== null) return e >= resetStep;
+    const here = T.phase === 'done' ? flow.phase === 'done' : (flow.phase === T.phase && flow.index === T.drawIndex);
+    if (reached < 0) {
+      if (!here) return false;
+      reached = e;
+    }
+    if (!here || e - reached >= Math.floor(T.frac * maxDelay[T.phase] / dt)) {
+      resetStep = e;
+      return true;
+    }
+    return false;
+  };
+  const ok = await advance(ctx, cap, due);
+  if (failure) return { failure };
+  if (!ok) return { failure: mk('다시 하기 시점에 가기 전에 시간 초과') };
+
+  trigPhase = flow.phase;
+  trigIndex = flow.index;
+  stage = '다시 하기 누름';
+  if (!startReplay()) return { failure: mk(`다시 하기가 동작하지 않음 (단계 ${flow.phase})`) };
+  stage = '다시 하기 뒤 준비 중';
+  const readyOk = await advance(ctx, Math.round((replay.maxWait + 1) / dt), () => !!failure || !replay.pending);
+  if (failure) return { failure };
+  if (!readyOk || replay.pending) return { failure: mk('다시 하기 뒤 준비 완료가 안 됨') };
+  stage = '다시 하기 직후(준비 완료)';
+  let r = checkInvariants();
+  if (!r.ok) return { failure: mk(r.failures.join(' / ')) };
+  if (flow.phase !== 'idle') return { failure: mk(`준비 완료인데 단계가 ${flow.phase}`) };
+  if (startBtn.textContent !== '시작' || startBtn.disabled) return { failure: mk(`시작 버튼이 "시작"(눌림 가능)이 아님: "${startBtn.textContent}"`) };
+  stage = '다시 뽑기';
+  if (!startDraw()) return { failure: mk('다시 시작이 안 됨') };
+  const doneOk = await advance(ctx, cap, () => !!failure || flow.phase === 'done');
+  if (failure) return { failure };
+  if (!doneOk) return { failure: mk('7개를 다 뽑기 전에 시간 초과') };
+  stage = '다시 뽑기 완료';
+  r = checkInvariants();
+  if (!r.ok) return { failure: mk(r.failures.join(' / ')) };
+  return { failure: null, resetStep };
+}
+// 실패가 재현되는 가장 이른 시점 찾기: 같은 시드에서 다시 하기 시점을 앞당겨 가며 (이분 탐색, 최대 8번)
+// 같은 단계(stage)에서 같은 실패 메시지가 나올 때만 "재현"으로 셈 (다른 실패로 바뀐 것은 재현 아님)
+async function minimizeFailure(f) {
+  if (f.resetStep === null || f.resetStep === undefined || f.stage === '다시 하기 전' || f.stage === '오류') return f;
+  let lo = 0, hi = f.resetStep, best = f;
+  for (let i = 0; i < 8 && hi - lo > 12; i++) {
+    const mid = Math.floor((lo + hi) / 2);
+    const r = await propertyRun(f.seed, f.mode, { resetStep: mid });
+    if (r.failure && r.failure.stage === f.stage && r.failure.message === f.message) { hi = mid; best = r.failure; }
+    else lo = mid;
+  }
+  return best;
+}
+async function propertyTest(opts) {
+  opts = opts || {};
+  const runs = Math.max(1, Math.floor(Number(opts.runs) || 200));
+  const seed = opts.seed === undefined || opts.seed === null ? 1 : (Math.trunc(Number(opts.seed)) || 0);
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+  if (!harnessReady('속성 검사')) {
+    return { pass: false, runs: 0, failures: [{ seed: null, atPhysicsSec: null, phase: null, message: '준비가 안 됐거나 다른 검사가 진행 중' }] };
+  }
+  const t0 = performance.now();
+  const pick = mulberry32((seed ^ 0x5bd1e995) >>> 0);   // 회차 시드·다시 하기 시점을 정하는 난수 (물리 난수와 따로)
+  const failures = [];
+  const minimal = [];
+  let done = 0;
+  beginHarness();
+  try {
+    for (let r = 0; r < runs; r++) {
+      const runSeed = 1 + Math.floor(pick() * 2147483646);
+      const mode = r % 10 === 9 ? 'random' : 'physics';     // 10회 중 1회는 난수 방식(곡선 이동 중 다시 하기 포함)
+      const target = { phase: PROP_TARGETS[Math.floor(pick() * PROP_TARGETS.length)], drawIndex: Math.floor(pick() * CONFIG.draw.total), frac: pick() };
+      let res;
+      try {
+        res = await propertyRun(runSeed, mode, { target });
+      } catch (e) {
+        res = { failure: { seed: runSeed, mode, atPhysicsSec: null, phase: flow.phase, drawIndex: flow.index + 1, stage: '오류', message: String(e && e.message ? e.message : e) } };
+      }
+      done++;
+      if (res.failure) {
+        failures.push(res.failure);
+        if (minimal.length < 3) {
+          try { minimal.push(await minimizeFailure(res.failure)); } catch (e) { minimal.push(res.failure); }
+        }
+      }
+      if (onProgress) { try { onProgress(done, runs, failures.length); } catch (e) { /* 진행 표시 오류는 무시 */ } }
+    }
+  } finally {
+    endHarness();
+  }
+  const seconds = Math.round((performance.now() - t0) / 100) / 10;
+  const pass = failures.length === 0;
+  const fmt = (x) => `시드 ${x.seed}(${x.mode}), 시작 뒤 물리 ${x.atPhysicsSec}초, 단계 ${x.phase} ${x.drawIndex}/7, ${x.stage}: ${x.message}`;
+  if (pass) console.log(`속성 검사: 통과 (${done}회, ${seconds}초)`);
+  else console.log(`속성 검사: 실패 ${failures.length}/${done}회 (${seconds}초)\n - ` + failures.slice(0, 10).map(fmt).join('\n - ') +
+    (minimal.length ? '\n 가장 이른 재현 시점(최소 사례):\n - ' + minimal.map(fmt).join('\n - ') : ''));
+  return { pass, runs: done, failures, minimal, seconds };
+}
+
+// ----- 5. profilePhysics: 바람 켜고 물리 1스텝 시간을 엔진 단계별·우리 처리별로 -----
+async function profilePhysics(opts) {
+  opts = opts || {};
+  const seconds = Math.max(1, Number(opts.seconds) || 10);
+  const seed = opts.seed === undefined || opts.seed === null ? 1 : opts.seed;
+  if (!harnessReady('물리 시간 측정')) return null;
+  const dt = CONFIG.fixedStep;
+  const now = () => performance.now();
+  const eng = { broadphase: 0, narrowphase: 0, makeContactConstraints: 0, solve: 0, integrate: 0 };
+  const our = { wind: 0, suction: 0, cap: 0, net: 0, mix: 0, flow: 0, outside: 0 };
+  let total = 0, steps = 0, swapped = false;
+  const outsideSteps = Math.max(1, Math.round(CONFIG.outsideCheckInterval / dt));
+  const profWind = () => { const t = now(); applyWind(); our.wind += now() - t; };
+  const profSuction = () => { const t = now(); applySuction(); our.suction += now() - t; };
+  const profPost = () => {                       // onPostStep과 같은 일을 같은 순서로 + 시간 재기
+    physicsSteps++;
+    let t = now(); capBallSpeeds(); our.cap += now() - t;
+    t = now(); applySafetyNet(); our.net += now() - t;
+    t = now(); recordMixStats(); our.mix += now() - t;
+    if (windOn && (physicsSteps - windStartStep) % outsideSteps === 0) { t = now(); countOutside(); our.outside += now() - t; }
+    t = now(); if (gate.state === 'closing') pushGateRegionDown(); drawFlowStep(); our.flow += now() - t;
+  };
+  let strength = 1;
+  beginHarness();
+  try {
+    prepareRun(seed, harnessSaved.mode);
+    await advance({ s0: physicsSteps, k: 0, onTick: null }, Math.round(CONFIG.draw.autoTestSettleTime / dt));
+    swapped = true;                              // 교체 도중 예외가 나도 finally에서 복구하도록 먼저 세움
+    world.removeEventListener('preStep', applyWind);
+    world.removeEventListener('preStep', applySuction);
+    world.removeEventListener('postStep', onPostStep);
+    world.addEventListener('preStep', profWind);
+    world.addEventListener('preStep', profSuction);
+    world.addEventListener('postStep', profPost);
+    world.doProfiling = true;
+    setWind(true);
+    if (opts.strength !== undefined && opts.strength !== null) CONFIG.wind.strength = Number(opts.strength) || 1;
+    strength = CONFIG.wind.strength;
+    const n = Math.round(seconds / dt);
+    for (let i = 0; i < n; i++) {
+      const t = now();
+      stepOnce();
+      total += now() - t;
+      steps++;
+      for (const key in eng) eng[key] += world.profile[key] || 0;
+      if ((i + 1) % HARNESS_YIELD === 0) await yieldToBrowser();
+    }
+  } finally {
+    world.doProfiling = false;
+    if (swapped) {
+      world.removeEventListener('preStep', profWind);
+      world.removeEventListener('preStep', profSuction);
+      world.removeEventListener('postStep', profPost);
+      world.addEventListener('preStep', applyWind);
+      world.addEventListener('preStep', applySuction);
+      world.addEventListener('postStep', onPostStep);
+    }
+    endHarness();
+  }
+  if (!steps) return null;
+  const parts = [
+    ['엔진: 넓은 범위 충돌 찾기 (broadphase)', eng.broadphase],
+    ['엔진: 접촉 계산 (narrowphase)', eng.narrowphase],
+    ['엔진: 접촉 조건 만들기 (makeContactConstraints)', eng.makeContactConstraints],
+    ['엔진: 접촉 풀기 (solve)', eng.solve],
+    ['엔진: 위치 갱신 (integrate)', eng.integrate],
+    ['우리: 바람 (preStep)', our.wind],
+    ['우리: 빨아들이기 (preStep)', our.suction],
+    ['우리: 속도 상한 (postStep)', our.cap],
+    ['우리: 안전망 (postStep)', our.net],
+    ['우리: 섞임 기록·통 밖 세기 (postStep)', our.mix],
+    ['우리: 뽑기 흐름 (postStep)', our.flow]
+  ];
+  const sum = parts.reduce((a, p) => a + p[1], 0);
+  parts.push(['기타 (엔진 나머지·몸체 넣고 빼기)', Math.max(0, total - sum)]);
+  const rows = parts.map(([name, ms]) => ({ 항목: name, '1스텝 평균(ms)': Number((ms / steps).toFixed(4)), '비율(%)': Number((ms / total * 100).toFixed(1)) }));
+  rows.push({ 항목: '(참고) 통 밖 세기만 — 위 섞임 기록에 포함, 0.25초마다 한 번 더 재서 추정', '1스텝 평균(ms)': Number((our.outside / steps).toFixed(4)), '비율(%)': Number((our.outside / total * 100).toFixed(1)) });
+  const stepMs = Math.round(total / steps * 10000) / 10000;
+  console.log(`물리 시간 측정: 바람 ${seconds}초(배율 ${strength}), ${steps}스텝, 1스텝 평균 ${stepMs}ms`);
+  console.table(rows);
+  return { seconds, seed, strength, steps, stepMsAvg: stepMs, rows };
+}
+
+// ----- 6. layoutCheck: 지금 창 크기에서 화면 겹침·가로 스크롤·버튼 크기·하단 문구 -----
+function layoutCheck() {
+  const f = [];
+  const W = window.innerWidth, H = window.innerHeight;
+  const TOL = 1;
+  const rnd = (r) => `위 ${Math.round(r.top)}, 아래 ${Math.round(r.bottom)}, 왼쪽 ${Math.round(r.left)}, 오른쪽 ${Math.round(r.right)}`;
+  // 3D 통·맨 위 칸·받침대·앞 받침대가 그려지는 영역 (카메라 맞춤에 쓰는 점들을 화면 좌표로)
+  const tmp = new THREE.Vector3();
+  const drum = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+  camera.updateMatrixWorld(true);
+  for (const p of getFitPoints()) {
+    tmp.copy(p).project(camera);
+    const sx = (tmp.x + 1) / 2 * W, sy = (1 - tmp.y) / 2 * H;
+    drum.left = Math.min(drum.left, sx); drum.right = Math.max(drum.right, sx);
+    drum.top = Math.min(drum.top, sy); drum.bottom = Math.max(drum.bottom, sy);
+  }
+  if (drum.top < -TOL || drum.left < -TOL || drum.right > W + TOL || drum.bottom > H + TOL) f.push(`3D 통 영역이 화면 밖으로 나감 (${rnd(drum)})`);
+  const ui = [['번호 칸', resultBarEl.getBoundingClientRect()], ['버튼 줄', btnRowEl.getBoundingClientRect()], ['하단 문구', footerEl.getBoundingClientRect()]];
+  const overlap = (a, b) => a.left < b.right - TOL && b.left < a.right - TOL && a.top < b.bottom - TOL && b.top < a.bottom - TOL;
+  for (const [name, r] of ui) {
+    if (overlap(drum, r)) f.push(`3D 통 영역(아래 끝 ${Math.round(drum.bottom)}px)이 ${name}(위 끝 ${Math.round(r.top)}px)과 겹침`);
+    if (r.left < -TOL || r.right > W + TOL || r.top < -TOL || r.bottom > H + TOL) f.push(`${name}이 화면 밖으로 나감 (${rnd(r)})`);
+  }
+  for (let i = 0; i < ui.length; i++) {
+    for (let j = i + 1; j < ui.length; j++) if (overlap(ui[i][1], ui[j][1])) f.push(`${ui[i][0]}과 ${ui[j][0]}이 겹침`);
+  }
+  const de = document.documentElement;
+  if (de.scrollWidth > de.clientWidth + TOL) f.push(`가로 스크롤 생김 (내용 폭 ${de.scrollWidth}px > 화면 ${de.clientWidth}px)`);
+  for (const [name, btn] of [['시작 버튼', startBtn], ['다시 하기 버튼', replayBtn]]) {
+    const r = btn.getBoundingClientRect();
+    if (r.height < 44 - 0.5) f.push(`${name} 높이 ${r.height.toFixed(1)}px (44px 이상이어야 함)`);
+    if (r.left < -TOL || r.right > W + TOL) f.push(`${name}이 화면 옆으로 잘림`);
+  }
+  const fs = getComputedStyle(footerEl);
+  if (fs.display === 'none' || fs.visibility === 'hidden' || Number(fs.opacity) === 0) f.push('하단 문구가 보이지 않음');
+  const text = footerEl.textContent;
+  if (!text.includes('재미용 시뮬레이터이며 공식 추첨·실제 복권과 무관함')) f.push('하단 안내 문구가 없음');
+  if (!text.includes('엘제유')) f.push('제작자 표기가 없음');
+  for (const span of footerEl.querySelectorAll('span')) {
+    const r = span.getBoundingClientRect();
+    if (r.width < 1 || r.top < -TOL || r.bottom > H + TOL || r.left < -TOL || r.right > W + TOL) f.push(`하단 문구 "${span.textContent}"가 화면 안에 다 안 보임 (${rnd(r)})`);
+  }
+  return { ok: f.length === 0, failures: f, size: `${W}x${H}`, drum: { top: Math.round(drum.top), bottom: Math.round(drum.bottom) } };
+}
+
+// ===== 다듬기(최적화, 2026-11-24): 그리기를 쉬어도 되는지 — 성능용(배터리 절약), 화면 조정값 아님 =====
+// 아래가 모두 참이면 화면에 움직이는 것이 하나도 없어 그림이 바뀌지 않는다:
+// 로딩 끝남, 자동 점검·검사 중 아님, 바람 꺼짐, 빨아들이기 꺼짐, 추첨 흐름 없음(시작 전 또는 추첨 완료),
+// 다시 하기 준비 중 아님, 난수 방식 곡선 이동 없음, 입구 닫힘(닫는 중·뺄 판·뺄 공 없음),
+// 통 안 공은 모두 잠듦(깨어 있는 공 0개), 뽑힌 공은 이동 애니메이션(칸으로 올라가기·곡선) 없음.
+// 화면 크기·화질·카메라 변경 직후와 탭 복귀 직후는 renderDirty로 따로 한 번 더 그림.
+// (뽑힌 공의 lookAt은 카메라가 고정이라 카메라가 바뀔 때만 달라짐 → renderDirty가 맡음)
+function canRestRender() {
+  if (!firstFrameDone) return false;
+  if (autoTest.running || harness.active) return false;
+  if (windOn || suctionOn) return false;
+  if (flow.phase !== 'idle' && flow.phase !== 'done') return false;
+  if (replay.pending) return false;
+  if (RandomSelector.ball) return false;
+  if (gate.state !== 'closed' || gate.pendingRemove || pendingBallRemovals.length) return false;
+  for (const b of balls) {
+    if (b.drawn) {
+      if (b.anim) return false;
+    } else if (!b.inWorld || b.body.sleepState !== CANNON.Body.SLEEPING) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ===== 반복 실행 (매 프레임) =====
@@ -2364,7 +3125,7 @@ function frame(now) {
   let dt = rawMs / 1000;
   lastTime = now;
   // 자동 점검 중에는 화면 루프가 물리를 돌리지 않고 그리지도 않음 (이중 계산 금지)
-  if (autoTest.running) return;
+  if (autoTest.running || harness.active) return;   // 다듬기: 검사 함수 실행 중에도 같음
   if (!(dt > 0)) dt = 0;
   dt = Math.min(dt, CONFIG.maxDt); // 탭 전환 후 복귀해도 공이 튀지 않게
 
@@ -2382,27 +3143,39 @@ function frame(now) {
   }
   checkReplayReady();              // 4단계: 다시 하기 후 공이 다 쌓였는지
 
-  // 물리 위치를 화면 공에 반영 (부드럽게 보이도록 보간된 위치 사용)
-  // 벽은 물리 엔진의 판 콜라이더가 처리하므로 보간 위치를 따로 되돌리지 않는다.
-  // 뽑힌 공은 물리 대신 맨 위 칸·앞 받침대 위치에 놓고 번호가 카메라를 보게 함
-  const tNow = getPhysicsTime();
-  for (const b of balls) {
-    if (b.drawn) {
-      updateDrawnMesh(b, tNow);
-      continue;
+  // 다듬기(최적화): 멈춰 있을 때 그리기 쉬기 (성능용, 화면 조정값 아님). 물리는 위에서 이미 매 프레임 진행함.
+  // 쉬는 조건이 처음 참이 된 프레임은 한 번 더 그려서 최종 모습을 남기고, 그 뒤부터 쉼. 조건이 깨지면 바로 다시 매 프레임 그림
+  const canRest = canRestRender();
+  const skipRender = canRest && renderRested && !renderDirty;
+  if (!skipRender) {
+    // 물리 위치를 화면 공에 반영 (부드럽게 보이도록 보간된 위치 사용)
+    // 벽은 물리 엔진의 판 콜라이더가 처리하므로 보간 위치를 따로 되돌리지 않는다.
+    // 뽑힌 공은 물리 대신 맨 위 칸·앞 받침대 위치에 놓고 번호가 카메라를 보게 함
+    // 다듬기(최적화): 쉬기 전 마지막 1프레임은 보간 위치 대신 잠든 공의 실제 위치를 씀
+    // (잠든 공은 다음 물리 계산에서 보간 위치가 실제 위치와 같아지므로, 계속 그렸을 때의 최종 모습과 같음)
+    const finalRest = canRest;
+    const tNow = getPhysicsTime();
+    for (const b of balls) {
+      if (b.drawn) {
+        updateDrawnMesh(b, tNow);
+        continue;
+      }
+      b.mesh.position.copy(finalRest ? b.body.position : b.body.interpolatedPosition);
+      b.mesh.quaternion.copy(finalRest ? b.body.quaternion : b.body.interpolatedQuaternion);
     }
-    b.mesh.position.copy(b.body.interpolatedPosition);
-    b.mesh.quaternion.copy(b.body.interpolatedQuaternion);
-  }
 
-  renderer.render(scene, camera);
+    renderer.render(scene, camera);
+    renderDirty = false;
+    renderRested = canRest;
+  }
+  renderSkipping = skipRender;
 
   if (!firstFrameDone) {
     firstFrameDone = true;
     hideLoading();
     updateStartButton();           // 로딩이 끝난 뒤에만 시작 버튼 사용 가능
   } else {
-    perfRecordFrame(rawMs, frameSteps, framePhysMs);   // 5단계: 성능 기록 (첫 프레임은 준비 시간이 섞여 빼고 셈)
+    perfRecordFrame(rawMs, frameSteps, framePhysMs, skipRender);   // 5단계: 성능 기록 (첫 프레임은 준비 시간이 섞여 빼고 셈)
   }
 
   periodicOutsideCheck();
@@ -2415,6 +3188,7 @@ function onVisibilityChange() {
     rafId = null;
   } else {
     lastTime = performance.now();
+    renderDirty = true;            // 다듬기(최적화): 탭으로 돌아오면 그리기를 쉬던 중이어도 한 번 다시 그림 (화면이 지워졌을 경우 대비)
     if (rafId === null) rafId = requestAnimationFrame(frame);
   }
 }
@@ -2435,6 +3209,13 @@ async function init() {
   if (!isWebGLAvailable()) {
     showError('이 기기/브라우저에서는 3D 화면(WebGL)을 사용할 수 없습니다. 최신 Chrome·Safari·Edge에서 열어 주세요.');
     return;
+  }
+
+  // 다듬기: 주소에 ?seed=정수 가 있으면 고정 난수로 시작 (없으면 아무것도 바뀌지 않음)
+  const urlSeed = readUrlSeed();
+  if (urlSeed !== null) {
+    setSeed(urlSeed);
+    console.log(`고정 난수 모드: seed=${urlSeed} (같은 결과는 그리지 않는 빠른 모드에서만 보장)`);
   }
 
   // 3) 화면·물리 준비
@@ -2470,18 +3251,27 @@ async function init() {
     drawState: () => getDrawState(),
     runAutoTest: (n, options) => runAutoTest(n, options),
     perfReport: () => perfReport(),   // 5단계: 최근 10초 성능 요약
+    // 다듬기: 검사 도구 (검사/index.html 페이지와 콘솔에서 사용)
+    setSeed: (n) => setSeed(n),
+    getSeed: () => getSeed(),
+    simulate: (o) => simulate(o),
+    checkInvariants: () => checkInvariants(),
+    quickCheck: (o) => quickCheck(o),
+    propertyTest: (o) => propertyTest(o),
+    profilePhysics: (o) => profilePhysics(o),
+    layoutCheck: () => layoutCheck(),
     autoTestResult: null,
     config: CONFIG
   };
 
   // 시작 버튼: 한 번 누르면 7개 뽑기가 끝까지 자동으로 진행 (멈춤 기능 없음). "시작" 상태에서만 동작
   startBtn.addEventListener('click', () => {
-    if (autoTest.running || !firstFrameDone) return;
+    if (autoTest.running || harness.active || !firstFrameDone) return;
     startDraw();
   });
   // 다시 하기 버튼 (따로 있음): 추첨 중이면 중단하고, 추첨 완료 뒤면 그대로 처음 상태로 되돌림
   replayBtn.addEventListener('click', () => {
-    if (autoTest.running || !firstFrameDone) return;
+    if (autoTest.running || harness.active || !firstFrameDone) return;
     startReplay();
   });
 
