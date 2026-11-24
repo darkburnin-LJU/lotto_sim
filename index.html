@@ -202,9 +202,10 @@
     box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.3);
     animation: slotPop 0.3s ease-out;
   }
-  /* 추첨이 끝난 뒤 번호 정렬 전환: 일반 6칸이 살짝 사라졌다가(0.17초) 정렬된 번호로 다시 나타남(0.17초) */
+  /* 추첨이 끝난 뒤 번호 정렬 전환: 일반 6칸이 살짝 사라졌다가(0.17초) 정렬된 번호로 다시 나타남(0.17초)
+     배속: JS가 --sort-fade를 0.17초 ÷ 배속으로 바꿈 (3배면 약 0.057초) */
   #resultBar .slot {
-    transition: opacity 0.17s ease, transform 0.17s ease;
+    transition: opacity var(--sort-fade, 0.17s) ease, transform var(--sort-fade, 0.17s) ease;
   }
   #resultBar .slot.sortHide {
     opacity: 0;
@@ -245,6 +246,65 @@
     filter: brightness(0.9);           /* 누르는 동안 살짝 어둡게 + 작아짐(위의 scale) */
   }
 
+  /* ===== 배속 선택 줄 (2026-11-24, 오리지널 디자인): 번호 칸과 버튼 줄 사이. 5개 중 하나만 선택 =====
+     가로 300px 화면에서도 한 줄 (라벨 + 버튼 5개 ≈ 265px). 실제 위치(bottom)는 JS(layoutBottomUI)가 정함 */
+  #speedRow {
+    position: fixed;
+    left: 50%;
+    bottom: 100px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 5px;
+    border-radius: 22px;
+    background: rgba(8, 12, 26, 0.38);
+    white-space: nowrap;
+    z-index: 14;
+  }
+  #speedRow .speedLabel {
+    padding: 0 2px 0 5px;
+    font-size: 11px;
+    color: #c9d1e3;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #speedRow .speedBtn {
+    box-sizing: border-box;
+    min-width: 42px;
+    min-height: 40px;                  /* 누르기 쉬운 높이 (낮은 화면에서는 36px) */
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: 20px;
+    background: transparent;
+    color: #e8ecf5;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  #speedRow .speedBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+  /* 선택된 배속: 시작 버튼과 같은 계열의 민트색 바탕 + 진한 글자(명암비 약 8.5:1) + 굵은 글자 */
+  #speedRow .speedBtn[aria-checked="true"] {
+    background: #4fc3a1;
+    border-color: rgba(255, 255, 255, 0.6);
+    color: #0d1326;
+    font-weight: 800;
+  }
+  #speedRow .speedBtn:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 1px;
+  }
+
   /* ===== 5단계: 좁은 세로 폰 (가로 360px 이하) — 하단 문구 줄 수 줄이기 (화면 조정값) ===== */
   @media (max-width: 360px) {
     #footer { font-size: 11px; }
@@ -268,6 +328,13 @@
     padding: 0 14px;
     border-radius: 22px;
   }
+  body.compact #speedRow { padding: 1px 4px; }
+  body.compact #speedRow .speedBtn {
+    min-height: 36px;
+    font-size: 13px;
+    border-radius: 18px;
+  }
+  body.compact #speedRow .speedLabel { font-size: 10px; }
   body.compact #startBtn { min-width: 104px; }
   body.compact #replayBtn { min-width: 88px; }
   body.compact #resultBar {
@@ -343,6 +410,15 @@
   <div class="slotWrap" aria-hidden="true"><div class="slot"></div><div class="bonusLabel">보너스</div></div>
   <span id="resultSr" class="srOnly"></span>
 </div>
+<!-- 배속 선택 (2026-11-24): 물리 시간이 실제 시간보다 몇 배 빨리 흐르는지. 한 번에 하나만 선택 (화살표 키로 이동 가능) -->
+<div id="speedRow" role="radiogroup" aria-labelledby="speedLabel">
+  <span id="speedLabel" class="speedLabel">배속</span>
+  <button type="button" class="speedBtn" role="radio" aria-checked="false" tabindex="-1" data-speed="0.5" aria-label="0.5배속">0.5×</button>
+  <button type="button" class="speedBtn" role="radio" aria-checked="true" tabindex="0" data-speed="1" aria-label="1배속">1×</button>
+  <button type="button" class="speedBtn" role="radio" aria-checked="false" tabindex="-1" data-speed="1.5" aria-label="1.5배속">1.5×</button>
+  <button type="button" class="speedBtn" role="radio" aria-checked="false" tabindex="-1" data-speed="2" aria-label="2배속">2×</button>
+  <button type="button" class="speedBtn" role="radio" aria-checked="false" tabindex="-1" data-speed="3" aria-label="3배속">3×</button>
+</div>
 <div id="btnRow">
   <button id="startBtn" type="button" disabled>시작</button>
   <button id="replayBtn" type="button" disabled>다시 하기</button>
@@ -361,6 +437,7 @@
 //                           5단계: 폰 화면 배치·성능 측정(?fps=1, lottoSim.perfReport())·자동 화질 낮추기
 //                           다듬기: 검사 도구(고정 난수 ?seed=, lottoSim.simulate/quickCheck/propertyTest 등)
 //                           다듬기: 최적화(라이브러리 압축판, 멈춰 있을 때 화면 그리기 쉬기)
+//                           다듬기: 배속 버튼(0.5·1·1.5·2·3배, 2026-11-24)
 // =====================================================================
 
 // 라이브러리는 init 안에서 동적으로 불러온다 (실패하면 안내 문구를 보여주기 위해)
@@ -429,6 +506,7 @@ const CONFIG = {
   // 계산량 약 2배, 폰 성능은 5단계에서 확인
   fixedStep: 1 / 120,
   maxSubSteps: 6,                  // 한 프레임에 물리 계산 최대 횟수 (maxDt 0.05 ÷ 1/120 = 6, 화면이 느려도 물리가 실제 시간을 따라가게)
+                                   // 배속: 실제로는 getMaxSubSteps() = max(6, ceil(6 × 배속)) 사용 (0.5배 6, 1.5배 9, 2배 12, 3배 18)
   maxDt: 0.05,                     // 탭 전환 후 복귀해도 공이 튀지 않게
   maxBallSpeed: 150,               // 공 속도 상한 (약 6.7m/s, 벽 뚫림·폭주 방지 안전장치. 통 꼭대기→바닥 낙하 속도 약 65단위/s보다 넉넉히)
   solverIterations: 10,            // 공끼리 접촉을 풀어 주는 반복 횟수 (클수록 정확하지만 느림)
@@ -454,7 +532,7 @@ const CONFIG = {
   // 모든 시간은 물리 시간(physicsSteps × fixedStep) 기준 — 탭이 숨겨져 멈춰도 흐름이 어긋나지 않음
   draw: {
     total: 7,                  // 한 회차에 뽑는 공 수 (6개 + 보너스 1개)
-    mixTime: 5,                // 화면 조정값, 실제 확인 못 함: 입구를 열기 전 섞는 시간(초)
+    mixTime: 3,                // 화면 조정값: 입구를 열기 전 섞는 시간(초). 2026-11-24 사용자 결정 5 → 3 (첫 공 포함). 처음 5초는 사용자 영상 분석 기준이었음
     showTime: 2,               // 화면 조정값: 잡힌 공을 맨 위 칸에서 보여 주는 시간(초)
     maxWait: 8,                // 화면 조정값: 입구 열린 뒤 이 시간(초) 넘게 안 잡히면 바람을 세게 함
     boostInterval: 4,          // 화면 조정값: 그 뒤 이 간격(초)마다 한 단계씩 더 세게
@@ -592,6 +670,26 @@ let renderDirty = true;    // 화면 크기·화질·카메라가 바뀌었거�
 let renderRested = false;  // 쉬는 조건에서 마지막 1프레임을 이미 그렸는지 (true면 다음부터 그리기 쉼)
 let renderSkipping = false; // 바로 전 프레임에서 그리기를 쉬었는지 (?fps=1 표시용)
 
+// ===== 배속 (2026-11-24, 사용자 요청) — 화면 조정값 아님, 보는 빠르기 선택 =====
+// 배속 = "물리 시간이 실제 시간보다 몇 배 빨리 흐르는가". 물리 계산 간격(fixedStep 1/120초)과 물리 값은 그대로이고,
+// 화면 루프가 프레임마다 world.step에 넘기는 경과 시간만 (실제 프레임 간격 dt, 상한 maxDt) × 배속.
+// → 같은 고정 간격 계산을 더 자주/덜 자주 할 뿐이라 공의 움직임 규칙·뽑기 흐름은 배속과 무관하다.
+//   (화면 모드는 원래도 프레임 시간에 따라 결과가 달라질 수 있음 — 고정 난수 설명 참고. 같은 결과 보장은 빠른 모드 검사에서만)
+// 섞기 3초·보여 주기 2초·끼임 30초·바람 강화·칸으로 올라가기·난수 곡선은 모두 물리 시간 기준이라 자동으로 배속이 반영됨.
+// 자동 점검·검사 함수(runAutoTest·simulate·quickCheck·propertyTest 등)는 world.step(fixedStep)을 직접 불러 배속과 무관.
+const SPEED_OPTIONS = [0.5, 1, 1.5, 2, 3];
+const SPEED_STORAGE_KEY = 'lottoSim.speed';
+let simSpeed = 1;
+function getMaxSubSteps() {
+  return Math.max(CONFIG.maxSubSteps, Math.ceil(CONFIG.maxSubSteps * simSpeed));
+}
+// 화면 그리기용 물리 시각: 계산 횟수 × 간격 + 엔진에 남은 자투리 시간(다음 계산 전까지). 0.5배처럼 프레임마다 계산이
+// 0번/1번/2번으로 들쭉날쭉해도 뽑힌 공 이동 애니메이션이 부드럽게 보이게 함 (공 보간 위치와 같은 원리)
+function getDisplayPhysicsTime() {
+  const acc = world && world.accumulator > 0 ? Math.min(world.accumulator, CONFIG.fixedStep) : 0;
+  return getPhysicsTime() + acc;
+}
+
 // ===== 바람 상태 (2단계) =====
 let windOn = false;
 let windStartStep = 0;     // 바람을 켠 순간의 물리 계산 횟수
@@ -646,6 +744,8 @@ const loadingEl = document.getElementById('loading');
 const startBtn = document.getElementById('startBtn');
 const replayBtn = document.getElementById('replayBtn');
 const btnRowEl = document.getElementById('btnRow');
+const speedRowEl = document.getElementById('speedRow');
+const speedBtnEls = Array.from(speedRowEl.querySelectorAll('.speedBtn'));
 const footerEl = document.getElementById('footer');
 const resultBarEl = document.getElementById('resultBar');
 const resultSlotEls = Array.from(resultBarEl.querySelectorAll('.slot'));   // 7칸 (마지막이 보너스)
@@ -743,8 +843,9 @@ function announceResult(numbers) {
 // 약 0.6초 뒤 일반 6칸이 살짝 사라졌다가(0.17초) 정렬된 번호로 다시 나타남(0.17초). 보너스 칸은 그대로.
 // 기기에서 "동작 줄이기"(prefers-reduced-motion)를 켜면 기다림·전환 없이 바로 바뀜.
 // 다시 하기 때 clearResultBar가 예약(타이머)을 취소 → 비운 칸이 나중에 다시 채워지지 않음
-const SORT_DELAY_MS = 600;         // 화면용: 7번째 공 표시 뒤 정렬 시작까지
-const SORT_FADE_MS = 170;          // 화면용: 사라지는 시간 (CSS transition 0.17s와 같게)
+// 배속: 기다림·전환 시간을 배속으로 나눔 (3배면 3배 빨리). 정렬 예약을 건 순간의 배속을 씀
+const SORT_DELAY_MS = 600;         // 화면용: 7번째 공 표시 뒤 정렬 시작까지 (1배 기준)
+const SORT_FADE_MS = 170;          // 화면용: 사라지는 시간 (1배 기준, CSS 변수 --sort-fade 기본 0.17s와 같게)
 const sortTimers = [];
 function cancelSortTimers() {
   while (sortTimers.length) clearTimeout(sortTimers.pop());
@@ -763,14 +864,17 @@ function scheduleSortResultBar(numbers) {
     apply();
     return;
   }
+  const delayMs = SORT_DELAY_MS / simSpeed;
+  const fadeMs = SORT_FADE_MS / simSpeed;
+  resultBarEl.style.setProperty('--sort-fade', (fadeMs / 1000).toFixed(3) + 's');   // CSS 전환 시간도 같게
   sortTimers.push(setTimeout(() => {
     for (const el of mainEls) el.classList.add('sortHide');
     sortTimers.push(setTimeout(() => {
       apply();
       for (const el of mainEls) el.classList.remove('sortHide');
       sortTimers.length = 0;
-    }, SORT_FADE_MS));
-  }, SORT_DELAY_MS));
+    }, fadeMs));
+  }, delayMs));
 }
 // 번호 표시 비우기 (빈 칸 7개로). 정렬 예약이 남아 있으면 취소
 function clearResultBar() {
@@ -859,7 +963,7 @@ function createScene() {
 }
 
 // ===== 카메라 위치 (화면 비율에 맞춰 통 전체가 보이게) =====
-// 버튼 줄(시작 + 다시 하기)을 하단 문구 바로 위에, 번호 표시를 버튼 줄 바로 위에 놓는다
+// 버튼 줄(시작 + 다시 하기)을 하단 문구 바로 위에, 배속 줄을 버튼 줄 바로 위에, 번호 표시를 배속 줄 바로 위에 놓는다
 // 5단계: 높이가 낮은 화면(CONFIG.compactMaxHeight 이하)이면 body에 compact를 붙여 여백·글자를 줄임 (CSS 참고)
 function isCompactLayout() {
   return window.innerHeight <= CONFIG.compactMaxHeight;
@@ -868,14 +972,18 @@ function layoutBottomUI() {
   const compact = isCompactLayout();
   document.body.classList.toggle('compact', compact);
   const gapFooter = compact ? 4 : 12;            // 화면 조정값: 하단 문구 ↔ 버튼 줄 간격(px)
-  const gapBar = compact ? 4 : 10;               // 화면 조정값: 버튼 줄 ↔ 번호 표시 간격(px)
+  const gapSpeed = compact ? 4 : 8;              // 화면 조정값: 버튼 줄 ↔ 배속 줄 간격(px)
+  const gapBar = compact ? 4 : 10;               // 화면 조정값: 배속 줄 ↔ 번호 표시 간격(px)
   const btnBottom = footerEl.offsetHeight + gapFooter;
   btnRowEl.style.bottom = btnBottom + 'px';
-  resultBarEl.style.bottom = (btnBottom + btnRowEl.offsetHeight + gapBar) + 'px';
+  // 배속 줄(2026-11-24)은 버튼 줄 바로 위, 번호 표시는 배속 줄 바로 위
+  const speedBottom = btnBottom + btnRowEl.offsetHeight + gapSpeed;
+  speedRowEl.style.bottom = speedBottom + 'px';
+  resultBarEl.style.bottom = (speedBottom + speedRowEl.offsetHeight + gapBar) + 'px';
 }
-// 화면 아래에서 번호 표시·버튼 줄·하단 문구가 차지하는 높이(px)
+// 화면 아래에서 번호 표시·배속 줄·버튼 줄·하단 문구가 차지하는 높이(px)
 function getBottomReservedPx() {
-  const top = Math.min(btnRowEl.getBoundingClientRect().top, resultBarEl.getBoundingClientRect().top);
+  const top = Math.min(btnRowEl.getBoundingClientRect().top, speedRowEl.getBoundingClientRect().top, resultBarEl.getBoundingClientRect().top);
   const gapTop = isCompactLayout() ? 4 : 8;      // 화면 조정값: 3D 영역 ↔ 번호 표시 사이 여유(px)
   return Math.max(0, window.innerHeight - top + gapTop);
 }
@@ -1014,9 +1122,23 @@ function getTargetPixelRatio() {
 // realMs: 실제 흐른 시간(제한 전 프레임 간격의 합), steps: 물리 계산 횟수, physMs: world.step에 걸린 시간
 // (바람·빨아들이기·안전망 등 물리 계산마다 도는 코드 포함), over33: 프레임 간격이 33ms(30fps)를 넘은 프레임 수
 // skipped: 다듬기(최적화) — 그리기를 쉰 프레임 수
+// targetMs: 배속(2026-11-24) — 목표 물리 시간(ms) = 프레임마다 (실제 프레임 간격 × 그때의 배속)의 합.
+//           묶음 도중 배속을 바꿔도 프레임별로 그때 배속을 곱하므로 정확함
 const PERF_HISTORY = 10;
 function makePerfBucket() {
-  return { frames: 0, realMs: 0, steps: 0, physMs: 0, over33: 0, windAll: true, skipped: 0 };
+  return { frames: 0, realMs: 0, steps: 0, physMs: 0, over33: 0, windAll: true, skipped: 0, targetMs: 0 };
+}
+// 물리 속도 % (배속 기준, 2026-11-24 변경): 실제로 진행된 물리 시간 ÷ 목표 물리 시간(실제 시간 × 배속) × 100.
+// 예) 3배 목표인데 실제 2.4배로 돌면 80%. 이전에는 "실제 시간 대비"였음(1배일 때는 두 계산이 같음)
+function perfSpeedPct(b) {
+  return b && b.targetMs > 0 ? Math.round(b.steps * CONFIG.fixedStep * 1000 / b.targetMs * 100) : null;
+}
+// 실제 배속 = 진행된 물리 시간 ÷ 실제 흐른 시간
+function perfActualSpeed(b) {
+  return b && b.realMs > 0 ? b.steps * CONFIG.fixedStep * 1000 / b.realMs : null;
+}
+function formatSpeed(v) {
+  return String(v);                // 0.5, 1, 1.5, 2, 3
 }
 const PERF = {
   enabled: false,                  // ?fps=1 이면 왼쪽 위에 표시
@@ -1033,9 +1155,10 @@ const FRAME_OVER_MS = 1000 / 30;   // 30fps 한 프레임 시간
 function copyPerfBucket(dst, src) {
   dst.frames = src.frames; dst.realMs = src.realMs; dst.steps = src.steps;
   dst.physMs = src.physMs; dst.over33 = src.over33; dst.windAll = src.windAll; dst.skipped = src.skipped;
+  dst.targetMs = src.targetMs;
 }
 function resetPerfBucket(b) {
-  b.frames = 0; b.realMs = 0; b.steps = 0; b.physMs = 0; b.over33 = 0; b.windAll = true; b.skipped = 0;
+  b.frames = 0; b.realMs = 0; b.steps = 0; b.physMs = 0; b.over33 = 0; b.windAll = true; b.skipped = 0; b.targetMs = 0;
 }
 // 매 프레임 한 번 호출 (rawMs: 제한 전 프레임 간격, steps: 이번 프레임 물리 계산 횟수, physMs: world.step 시간,
 // skipped: 다듬기(최적화) — 이번 프레임에 그리기를 쉬었는지)
@@ -1045,6 +1168,7 @@ function perfRecordFrame(rawMs, steps, physMs, skipped) {
   c.frames++;
   if (skipped) c.skipped++;
   c.realMs += rawMs;
+  c.targetMs += rawMs * simSpeed;                // 배속: 이 프레임의 목표 물리 시간
   c.steps += steps;
   c.physMs += physMs;
   if (rawMs > FRAME_OVER_MS + 0.5) c.over33++;   // 0.5ms는 측정 오차 여유
@@ -1059,7 +1183,25 @@ function closePerfBucket() {
   PERF.count = Math.min(PERF_HISTORY, PERF.count + 1);
   resetPerfBucket(c);
   checkAutoQuality(closed);
+  checkSpeedKeepUp(closed);
   updatePerfBox(closed);
+}
+// 배속(2026-11-24): 물리가 목표 배속을 못 따라가는지 (목표 대비 90% 미만인 1초 묶음이 3개 연속 = 약 3초 이상)
+// → 콘솔에 한 번만 알림 (배속마다 한 번. 화면 문구는 넣지 않음). 배속을 바꾸면 연속 횟수는 처음부터 다시 셈
+const SPEED_LAG = { minPct: 90, needBuckets: 3, lowBuckets: 0, warned: new Set() };
+function checkSpeedKeepUp(closed) {
+  const pct = perfSpeedPct(closed);
+  if (pct === null) return;
+  if (pct >= SPEED_LAG.minPct) {
+    SPEED_LAG.lowBuckets = 0;
+    return;
+  }
+  SPEED_LAG.lowBuckets++;
+  if (SPEED_LAG.lowBuckets < SPEED_LAG.needBuckets || SPEED_LAG.warned.has(simSpeed)) return;
+  SPEED_LAG.warned.add(simSpeed);
+  const s = sumPerf(recentPerfBuckets(SPEED_LAG.needBuckets));
+  const actual = perfActualSpeed(s);
+  console.log(`이 기기에서는 ${formatSpeed(simSpeed)}배를 다 못 따라가 실제 약 ${actual === null ? '-' : actual.toFixed(1)}배로 돌고 있음 (목표 대비 ${perfSpeedPct(s)}%)`);
 }
 // 최근 k개 묶음 (오래된 것부터)
 function recentPerfBuckets(k) {
@@ -1073,6 +1215,7 @@ function sumPerf(list) {
   for (const b of list) {
     s.frames += b.frames; s.realMs += b.realMs; s.steps += b.steps; s.physMs += b.physMs; s.over33 += b.over33;
     s.skipped += b.skipped || 0;
+    s.targetMs += b.targetMs || 0;
   }
   return s;
 }
@@ -1109,12 +1252,14 @@ function updatePerfBox(b) {
   const fps = b && b.realMs > 0 ? (b.frames * 1000 / b.realMs).toFixed(1) : '-';
   const stepMs = b && b.steps > 0 ? (b.physMs / b.steps).toFixed(2) : '-';
   const perFrame = b && b.frames > 0 ? (b.steps / b.frames).toFixed(2) : '-';
-  const speed = b && b.realMs > 0 ? Math.round(b.steps * CONFIG.fixedStep * 1000 / b.realMs * 100) : '-';
+  const pct = perfSpeedPct(b);                   // 목표(실제 시간 × 배속) 대비 %
+  const speed = pct === null ? '-' : pct;
   PERF.boxEl.textContent =
     `fps ${fps}\n` +
     `물리 1회 ${stepMs}ms\n` +
     `프레임당 물리 ${perFrame}회\n` +
-    `물리 속도 ${speed}%\n` +
+    `배속 ${formatSpeed(simSpeed)}배\n` +
+    `물리 속도 ${speed}% (목표 대비)\n` +
     `해상도 배율 ${renderer.getPixelRatio().toFixed(2)}\n` +
     `화면 ${window.innerWidth}×${window.innerHeight}\n` +
     `그리기: ${renderSkipping ? '쉼' : '그림'}`;   // 다듬기(최적화): 멈춰 있을 때 그리기 쉬는 중인지
@@ -1137,7 +1282,9 @@ function perfReport() {
     minFps: minFps === Infinity ? null : r1(minFps),           // 1초 묶음 중 가장 낮은 fps
     physicsStepMs: s.steps ? Math.round(s.physMs / s.steps * 1000) / 1000 : null,   // 물리 계산 1회 평균 시간
     physicsStepsPerFrame: Math.round(s.steps / s.frames * 100) / 100,
-    physicsSpeedPct: Math.round(s.steps * CONFIG.fixedStep * 1000 / s.realMs * 100),  // 100%면 실시간. 낮으면 물리가 느려짐
+    speed: simSpeed,                                           // 배속: 지금 고른 배속 (최근 10초 안에 바꿨으면 그 전 배속도 섞여 있음)
+    physicsSpeedPct: perfSpeedPct(s),                          // 배속: 목표(실제 시간 × 배속) 대비 %. 100%면 고른 배속 그대로, 낮으면 못 따라감
+    actualSpeed: Math.round(perfActualSpeed(s) * 100) / 100,   // 배속: 실제로 돈 배속 (물리 시간 ÷ 실제 시간)
     framesOver33msPct: r1(s.over33 / s.frames * 100),         // 30fps보다 느린 프레임 비율
     renderSkippedPct: r1(s.skipped / s.frames * 100),         // 다듬기(최적화): 그리기를 쉰 프레임 비율 (멈춰 있을 때만 쉼)
     pixelRatio: renderer.getPixelRatio(),
@@ -1151,7 +1298,7 @@ function perfReport() {
     `  30fps보다 느린 프레임(33ms 초과): ${report.framesOver33msPct}%\n` +
     `  그리기 쉰 프레임 비율: ${report.renderSkippedPct}% (공이 모두 멈추고 추첨·바람이 없을 때만 쉼, 배터리 절약용)\n` +
     `  물리 계산 1회 평균: ${report.physicsStepMs}ms, 프레임당 물리 계산: ${report.physicsStepsPerFrame}회\n` +
-    `  물리 속도: ${report.physicsSpeedPct}% (100%면 실제 시간과 같은 빠르기, 낮으면 공이 느리게 움직임)\n` +
+    `  배속: ${formatSpeed(report.speed)}배, 물리 속도: 목표 대비 ${report.physicsSpeedPct}% (실제 약 ${report.actualSpeed}배. 100%면 고른 배속 그대로, 낮으면 기기가 못 따라가 공이 더 느리게 움직임)\n` +
     `  그리는 해상도 배율: ${report.pixelRatio} (기기 배율 ${report.devicePixelRatio}), 화면 ${report.screen}\n` +
     `  자동으로 해상도를 낮춘 기록: ${report.autoQualityLowered.length ? report.autoQualityLowered.map(l => `${l.to} (평균 ${l.fps}fps)`).join(', ') : '없음'}`
   );
@@ -2054,7 +2201,7 @@ function getSelector() {
 }
 
 // ===== 뽑기 흐름 (공통, 3단계) =====
-// 시작 → 바람 켜짐 → [섞기 5초 → 입구 열림 → 공 1개 잡힘 → 맨 위 칸에서 2초 → 앞 받침대로 순간이동] × 7
+// 시작 → 바람 켜짐 → [섞기 3초 → 입구 열림 → 공 1개 잡힘 → 맨 위 칸에서 2초 → 앞 받침대로 순간이동] × 7
 // 시간은 모두 물리 시간 기준 (물리 계산마다 postStep에서 진행)
 function enterPhase(p) {
   flow.phase = p;
@@ -2617,7 +2764,7 @@ function snapshotString(pos) {
   return pos.map(p => p ? p.join(',') : 'x').join(';');
 }
 
-// ----- 1. simulate: 빠른 모드로 처음 배치 → 3초 쌓기 → 실제 흐름(5초 섞기·잡기·2초)으로 draws개 -----
+// ----- 1. simulate: 빠른 모드로 처음 배치 → 3초 쌓기 → 실제 흐름(3초 섞기·잡기·2초)으로 draws개 -----
 async function simulateCore(opts, onCheck) {
   const D = CONFIG.draw, dt = CONFIG.fixedStep;
   const seed = opts.seed === undefined || opts.seed === null ? 1 : opts.seed;
@@ -3063,7 +3210,7 @@ function layoutCheck() {
     drum.top = Math.min(drum.top, sy); drum.bottom = Math.max(drum.bottom, sy);
   }
   if (drum.top < -TOL || drum.left < -TOL || drum.right > W + TOL || drum.bottom > H + TOL) f.push(`3D 통 영역이 화면 밖으로 나감 (${rnd(drum)})`);
-  const ui = [['번호 칸', resultBarEl.getBoundingClientRect()], ['버튼 줄', btnRowEl.getBoundingClientRect()], ['하단 문구', footerEl.getBoundingClientRect()]];
+  const ui = [['번호 칸', resultBarEl.getBoundingClientRect()], ['배속 줄', speedRowEl.getBoundingClientRect()], ['버튼 줄', btnRowEl.getBoundingClientRect()], ['하단 문구', footerEl.getBoundingClientRect()]];
   const overlap = (a, b) => a.left < b.right - TOL && b.left < a.right - TOL && a.top < b.bottom - TOL && b.top < a.bottom - TOL;
   for (const [name, r] of ui) {
     if (overlap(drum, r)) f.push(`3D 통 영역(아래 끝 ${Math.round(drum.bottom)}px)이 ${name}(위 끝 ${Math.round(r.top)}px)과 겹침`);
@@ -3079,6 +3226,17 @@ function layoutCheck() {
     if (r.height < 44 - 0.5) f.push(`${name} 높이 ${r.height.toFixed(1)}px (44px 이상이어야 함)`);
     if (r.left < -TOL || r.right > W + TOL) f.push(`${name}이 화면 옆으로 잘림`);
   }
+  // 배속 버튼 5개 (2026-11-24): 높이 36px 이상, 화면 옆으로 안 잘림, 글자가 버튼 밖으로 안 넘침, 모두 한 줄
+  const speedTops = [];
+  for (const btn of speedBtnEls) {
+    const r = btn.getBoundingClientRect();
+    const name = `배속 ${btn.textContent} 버튼`;
+    if (r.height < 36 - 0.5) f.push(`${name} 높이 ${r.height.toFixed(1)}px (36px 이상이어야 함)`);
+    if (r.left < -TOL || r.right > W + TOL) f.push(`${name}이 화면 옆으로 잘림`);
+    if (btn.scrollWidth > btn.clientWidth + TOL || btn.scrollHeight > btn.clientHeight + TOL) f.push(`${name} 글자가 버튼 밖으로 넘침(줄바꿈)`);
+    speedTops.push(r.top);
+  }
+  if (speedTops.length && Math.max(...speedTops) - Math.min(...speedTops) > TOL) f.push('배속 버튼 5개가 한 줄에 다 안 들어감');
   const fs = getComputedStyle(footerEl);
   if (fs.display === 'none' || fs.visibility === 'hidden' || Number(fs.opacity) === 0) f.push('하단 문구가 보이지 않음');
   const text = footerEl.textContent;
@@ -3127,15 +3285,17 @@ function frame(now) {
   // 자동 점검 중에는 화면 루프가 물리를 돌리지 않고 그리지도 않음 (이중 계산 금지)
   if (autoTest.running || harness.active) return;   // 다듬기: 검사 함수 실행 중에도 같음
   if (!(dt > 0)) dt = 0;
-  dt = Math.min(dt, CONFIG.maxDt); // 탭 전환 후 복귀해도 공이 튀지 않게
+  dt = Math.min(dt, CONFIG.maxDt); // 탭 전환 후 복귀해도 공이 튀지 않게 (실제 시간 상한 — 배속을 곱하기 전에 자름)
 
   // 화면이 느려 한 프레임에 maxSubSteps를 넘게 계산해야 하면 남는 시간은 버림 → 공이 튀지 않는 대신 물리가 느려짐.
-  // 이 느려짐은 perfReport의 "물리 속도 %"로 확인
+  // 이 느려짐은 perfReport의 "물리 속도 %"(목표 대비)로 확인
+  // 배속(2026-11-24): 엔진에 넘기는 경과 시간만 dt × 배속. 계산 간격 fixedStep은 그대로, 한 프레임 최대 계산 수는 getMaxSubSteps()
+  // (배속을 바꿔도 엔진에 남은 자투리 시간은 그대로 이어지므로 흐름이 끊기거나 공이 튀지 않음)
   let frameSteps = 0, framePhysMs = 0;
   if (dt > 0) {
     const s0 = physicsSteps;
     const t0 = performance.now();
-    world.step(CONFIG.fixedStep, dt, CONFIG.maxSubSteps);
+    world.step(CONFIG.fixedStep, dt * simSpeed, getMaxSubSteps());
     framePhysMs = performance.now() - t0;
     frameSteps = physicsSteps - s0;
     flushBodyChanges();
@@ -3154,7 +3314,7 @@ function frame(now) {
     // 다듬기(최적화): 쉬기 전 마지막 1프레임은 보간 위치 대신 잠든 공의 실제 위치를 씀
     // (잠든 공은 다음 물리 계산에서 보간 위치가 실제 위치와 같아지므로, 계속 그렸을 때의 최종 모습과 같음)
     const finalRest = canRest;
-    const tNow = getPhysicsTime();
+    const tNow = getDisplayPhysicsTime();   // 배속: 자투리 시간까지 더한 물리 시각 (0.5배에서도 이동이 부드럽게)
     for (const b of balls) {
       if (b.drawn) {
         updateDrawnMesh(b, tNow);
@@ -3191,6 +3351,66 @@ function onVisibilityChange() {
     renderDirty = true;            // 다듬기(최적화): 탭으로 돌아오면 그리기를 쉬던 중이어도 한 번 다시 그림 (화면이 지워졌을 경우 대비)
     if (rafId === null) rafId = requestAnimationFrame(frame);
   }
+}
+
+// ===== 배속 선택 (2026-11-24) =====
+// 버튼 5개(0.5·1·1.5·2·3배) 중 하나만 선택. 추첨 중에도 바꿀 수 있음 (다음 프레임부터 그 빠르기로 이어짐).
+// 고른 배속은 이 브라우저에 기억(localStorage). 읽기·쓰기에 실패해도(사생활 보호 모드 등) 1배로 정상 동작
+function readSavedSpeed() {
+  try {
+    const v = Number(window.localStorage.getItem(SPEED_STORAGE_KEY));
+    if (SPEED_OPTIONS.includes(v)) return v;
+  } catch (e) { /* 저장소를 못 쓰면 1배 */ }
+  return 1;
+}
+function saveSpeed(v) {
+  try {
+    window.localStorage.setItem(SPEED_STORAGE_KEY, String(v));
+  } catch (e) { /* 저장 실패는 무시 (이번 방문 동안은 그대로 동작) */ }
+}
+// 선택 표시(aria-checked)와 키보드 이동용 tabindex(선택된 버튼만 Tab으로 들어옴)
+function updateSpeedButtons() {
+  for (const btn of speedBtnEls) {
+    const on = Number(btn.dataset.speed) === simSpeed;
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    btn.tabIndex = on ? 0 : -1;
+  }
+}
+function setSimSpeed(v, save = true) {
+  v = Number(v);
+  if (!SPEED_OPTIONS.includes(v)) {
+    console.warn(`배속은 ${SPEED_OPTIONS.join(', ')} 중 하나여야 합니다: ${v}`);
+    return simSpeed;
+  }
+  if (v !== simSpeed) {
+    simSpeed = v;
+    SPEED_LAG.lowBuckets = 0;                    // 못 따라가는지 판단은 새 배속으로 처음부터
+  }
+  updateSpeedButtons();
+  if (save) saveSpeed(v);
+  updatePerfBox();
+  return simSpeed;
+}
+function setupSpeedButtons() {
+  setSimSpeed(readSavedSpeed(), false);
+  for (const btn of speedBtnEls) {
+    btn.addEventListener('click', () => setSimSpeed(btn.dataset.speed));
+  }
+  // 화살표 키(←↑ 이전, →↓ 다음, 끝에서 처음으로 돌아감), Home(처음), End(끝): 선택을 옮기고 포커스도 같이 옮김
+  speedRowEl.addEventListener('keydown', (e) => {
+    const i = speedBtnEls.indexOf(document.activeElement);
+    if (i < 0) return;
+    const n = speedBtnEls.length;
+    let j = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') j = (i + 1) % n;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') j = (i - 1 + n) % n;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = n - 1;
+    if (j === null) return;
+    e.preventDefault();
+    setSimSpeed(speedBtnEls[j].dataset.speed);
+    speedBtnEls[j].focus();
+  });
 }
 
 // ===== 시작 =====
@@ -3260,6 +3480,9 @@ async function init() {
     propertyTest: (o) => propertyTest(o),
     profilePhysics: (o) => profilePhysics(o),
     layoutCheck: () => layoutCheck(),
+    // 배속 (2026-11-24): 화면 모드 빠르기만 바꿈 (검사 함수는 배속과 무관)
+    setSpeed: (v) => setSimSpeed(v),
+    getSpeed: () => simSpeed,
     autoTestResult: null,
     config: CONFIG
   };
@@ -3274,6 +3497,8 @@ async function init() {
     if (autoTest.running || harness.active || !firstFrameDone) return;
     startReplay();
   });
+  // 배속 버튼 (2026-11-24): 저장된 배속 불러오기 + 클릭·화살표 키
+  setupSpeedButtons();
 
   // 5단계: 화면 크기 바뀜 (창 크기·폰 돌리기·주소창 나타남/사라짐)
   window.addEventListener('resize', scheduleResize);
